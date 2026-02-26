@@ -131,12 +131,16 @@ gives you intuition for the task difficulty and generates demonstration data.
 **Keyboard controls:**
 | Key | Action |
 |-----|--------|
-| W/S | Move arm forward/backward |
-| A/D | Move arm left/right |
-| R/F | Move arm up/down |
-| Z/X | Rotate arm |
-| E | Toggle gripper open/close |
-| B | Toggle base control mode |
+| Ctrl+q | Reset simulation |
+| spacebar | Toggle gripper (open/close) |
+| up-right-down-left | Move horizontally in x-y plane |
+| .-; | Move vertically |
+| o-p | Rotate (yaw) |
+| y-h | Rotate (pitch) |
+| e-r | Rotate (roll) |
+| b | Toggle arm/base mode (if applicable) |
+| s | Switch active arm (if multi-armed robot) |
+| = | Switch active robot (if multi-robot environment) |              
 
 ### Step 4: Download Pre-collected Dataset
 
