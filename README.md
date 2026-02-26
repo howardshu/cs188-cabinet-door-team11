@@ -329,6 +329,8 @@ sweeping K = 4, 8, 16 and compare smoothness and success rate.
 
 ## Troubleshooting
 
+I'll continually update this section as students find bugs in the system. Please, let me know if you encounter issues!
+
 | Problem | Solution |
 |---------|----------|
 | `MuJoCo version must be 3.3.1` | `pip install mujoco==3.3.1` |
