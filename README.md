@@ -1,5 +1,9 @@
 # Cabinet Door Opening Robot - Student Project
 
+### Disclaimer
+
+This project was designed for CS 188 as a template starter project. If you have any issues with the codebase, please email me at holdengs @ cs.ucla.edu!
+
 ## Overview
 
 In this project you will build a robot that learns to open kitchen cabinet doors
