@@ -1,8 +1,8 @@
-# Cabinet Door Opening Robot - Student Project
+# Cabinet Door Opening Robot - CS 188 Starter Project
 
 ### Disclaimer
 
-This project was designed for CS 188 as a template starter project. If you have any issues with the codebase, please email me at holdengs @ cs.ucla.edu!
+This project was designed for CS 188 - Intro to Robotics as a template starter project. If you have any issues with the codebase, please email me at holdengs @ cs.ucla.edu!
 
 ## Overview
 
