@@ -35,7 +35,7 @@ def main():
     parser.add_argument(
         "--video_path",
         type=str,
-        default="/tmp/cabinet_random_rollouts.mp4",
+        default="./videos/cabinet_random_rollouts.mp4",
         help="Path to save the video",
     )
     parser.add_argument(
