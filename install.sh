@@ -143,6 +143,10 @@ info "Activated virtual environment"
 VENV_PY="$VENV_DIR/bin/python"
 VENV_PIP="$VENV_PY -m pip"
 
+# Ensure local source trees are importable in all script execution modes.
+# This avoids brittle behavior with editable-install path hooks.
+export PYTHONPATH="$REPO_DIR/robocasa:$REPO_DIR/robosuite${PYTHONPATH:+:$PYTHONPATH}"
+
 # Make sure pip exists in the venv (some distros create venvs without pip)
 "$VENV_PY" -m ensurepip --upgrade >/dev/null 2>&1 || true
 $VENV_PIP install --upgrade pip --quiet
