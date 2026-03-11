@@ -599,8 +599,24 @@ def train_vision_diffusion_chunk_policy(config):
     rollout_eval_rollouts = int(config.get("rollout_eval_rollouts", 5))
     rollout_eval_max_steps = int(config.get("rollout_eval_max_steps", 500))
     rollout_eval_every_epochs = int(config.get("rollout_eval_every_epochs", 20))
+    enable_rollout_eval = bool(config.get("enable_rollout_eval", True))
     sweep_steps = config.get("rollout_inference_steps_list", [16, 32, 64])
     sweep_steps = sorted(set(int(x) for x in sweep_steps))
+    if rollout_eval_every_epochs <= 0:
+        enable_rollout_eval = False
+
+    create_env = None
+    if enable_rollout_eval:
+        try:
+            from robocasa.utils.env_utils import create_env as _create_env
+
+            create_env = _create_env
+        except ModuleNotFoundError:
+            print(
+                "WARNING: robocasa is unavailable; disabling rollout success evaluation. "
+                "Install robocasa to log success_pretrain/target during training."
+            )
+            enable_rollout_eval = False
 
     checkpoint_dir = config.get("checkpoint_dir", "/tmp/cabinet_policy_checkpoints")
     os.makedirs(checkpoint_dir, exist_ok=True)
@@ -706,7 +722,8 @@ def train_vision_diffusion_chunk_policy(config):
         )
 
     def evaluate_success_rate(split, inference_steps):
-        from robocasa.utils.env_utils import create_env
+        if create_env is None:
+            return float("nan")
 
         model.eval()
         successes = 0
@@ -832,7 +849,9 @@ def train_vision_diffusion_chunk_policy(config):
                 f"    Val denoise loss: {val_denoise_loss:.6f}  "
                 f"Val action MSE: {val_action_mse:.6f}"
             )
-        if ((epoch + 1) % rollout_eval_every_epochs) == 0 or epoch == 0:
+        if enable_rollout_eval and (
+            ((epoch + 1) % rollout_eval_every_epochs) == 0 or epoch == 0
+        ):
             success_pretrain = evaluate_success_rate("pretrain", num_inference_steps)
             success_target = evaluate_success_rate("target", num_inference_steps)
             print(

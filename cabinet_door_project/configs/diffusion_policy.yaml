@@ -40,6 +40,7 @@ rollout_eval_every_epochs: 40
 rollout_eval_rollouts: 2
 rollout_eval_max_steps: 300
 rollout_inference_steps_list: [16, 32]
+enable_rollout_eval: false
 
 # Checkpoint saving
 checkpoint_dir: /tmp/cabinet_policy_checkpoints
