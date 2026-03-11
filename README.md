@@ -221,20 +221,25 @@ You can still run the simple MLP baseline for comparison:
 python 06_train_policy.py --policy simple
 ```
 
-Useful knobs when running on memory-constrained hardware:
+Few-hours profile (now default in `configs/diffusion_policy.yaml`):
 
 ```bash
 python 06_train_policy.py \
   --policy vision_diffusion_chunk \
-  --epochs 200 \
-  --batch_size 8 \
-  --hidden_dim 768 \
-  --vision_feature_dim 256 \
+  --epochs 20 \
+  --batch_size 16 \
+  --max_train_steps_per_epoch 150 \
+  --image_size 64 \
+  --hidden_dim 512 \
+  --vision_feature_dim 128 \
   --n_obs_steps 2 \
   --n_action_steps 8 \
   --num_diffusion_steps 100 \
-  --num_inference_steps 32
+  --num_inference_steps 16
 ```
+
+For higher final quality (longer runs), increase epochs / model size and remove
+the steps-per-epoch cap (`max_train_steps_per_epoch: null`).
 
 ### Step 7: Evaluate Your Policy
 
