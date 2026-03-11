@@ -12,6 +12,10 @@ tasks. You will progress from understanding the simulation environment, to
 collecting demonstrations, to training a neural-network policy that controls the
 robot autonomously.
 
+This fork includes a **native diffusion-policy baseline** directly in
+`cabinet_door_project/06_train_policy.py` (no external Hydra training repo
+required for core training / eval / visualization).
+
 ### What you will learn
 
 1. How robotic manipulation environments are structured (MuJoCo + robosuite + RoboCasa)
@@ -58,6 +62,44 @@ python 00_verify_installation.py
 > **macOS note:** Scripts that open a rendering window (03, 05) require
 > `mjpython` instead of `python`. The install script will remind you of this.
 
+### Google Colab (Training)
+
+Use this copy-paste sequence in a fresh Colab GPU notebook:
+
+```python
+# Cell 1: clone repo and enter it
+!git clone <YOUR_REPO_URL>
+%cd cs188-cabinet-door-team11
+```
+
+```python
+# Cell 2: install Colab dependencies
+!bash cabinet_door_project/colab_setup.sh
+```
+
+```python
+# Cell 3 (optional): mount Drive for dataset + checkpoints
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+```python
+# Cell 4: train (set paths for your Drive layout)
+DATASET_PATH = "/content/drive/MyDrive/OpenCabinet/lerobot"
+CKPT_DIR = "/content/drive/MyDrive/cabinet_policy_checkpoints"
+
+!python cabinet_door_project/06_train_policy.py \
+  --policy vision_diffusion_chunk \
+  --config cabinet_door_project/configs/diffusion_policy.yaml \
+  --dataset_path "$DATASET_PATH" \
+  --checkpoint_dir "$CKPT_DIR"
+```
+
+Notes:
+- `DATASET_PATH` must point to a LeRobot dataset root containing `data/` and `videos/`.
+- If your repo already lives on Drive, skip `git clone` and `%cd` into that folder instead.
+- On Colab, prefer offscreen evaluation/visualization (no on-screen viewer).
+
 ---
 
 ## Project Structure
@@ -70,11 +112,12 @@ cabinet_door_project/
   03_teleop_collect_demos.py     # Teleoperate the robot to collect your own demonstrations
   04_download_dataset.py         # Download the pre-collected OpenCabinet dataset
   05_playback_demonstrations.py  # Play back demonstrations to see expert behavior
-  06_train_policy.py             # Train a simple MLP behavior-cloning policy
-  07_evaluate_policy.py          # Evaluate your trained policy in simulation
-  08_visualize_policy_rollout.py # Visualize a rollout of your policy in RoboCasa
+  06_train_policy.py             # Train simple MLP or diffusion policy (default)
+  07_evaluate_policy.py          # Evaluate checkpoints (simple or diffusion)
+  08_visualize_policy_rollout.py # Visualize rollouts (simple or diffusion)
+  policy_models.py               # Shared model definitions used by train/eval
   configs/
-    diffusion_policy.yaml        # Training hyperparameters
+    diffusion_policy.yaml        # Starter diffusion hyperparameters
   notebook.ipynb                 # Interactive Jupyter notebook companion
 install.sh                       # Installation script (macOS + WSL/Linux)
 README.md                        # This file
@@ -164,38 +207,54 @@ doors. This is the data your policy will learn from.
 ### Step 6: Train a Policy
 
 ```bash
-python 06_train_policy.py
+python 06_train_policy.py --policy vision_diffusion_chunk --config configs/diffusion_policy.yaml
 ```
 
-Trains a simple MLP behavior-cloning policy on low-dimensional state-action
-pairs from the demonstration data. This is meant to illustrate the
-data-loading → training → checkpoint pipeline, not to produce a policy that
-can reliably solve the task.
+Trains the built-in vision-conditioned diffusion policy that uses all three
+cameras + robot state and predicts action chunks. Checkpoints are saved as
+`.pt` files and include model type + normalization statistics so evaluation and
+visualization scripts can load them automatically.
 
-For a policy that actually works, use one of the official training repos:
+You can still run the simple MLP baseline for comparison:
 
 ```bash
-# Diffusion Policy (recommended for single-task)
-git clone https://github.com/robocasa-benchmark/diffusion_policy
-cd diffusion_policy && pip install -e .
-python train.py --config-name=train_diffusion_transformer_bs192 task=robocasa/OpenCabinet
+python 06_train_policy.py --policy simple
 ```
 
-You can also print setup instructions for Diffusion Policy, pi-0, and GR00T
-directly from the script:
+Useful knobs when running on memory-constrained hardware:
 
 ```bash
-python 06_train_policy.py --use_diffusion_policy
+python 06_train_policy.py \
+  --policy vision_diffusion_chunk \
+  --epochs 200 \
+  --batch_size 8 \
+  --hidden_dim 768 \
+  --vision_feature_dim 256 \
+  --n_obs_steps 2 \
+  --n_action_steps 8 \
+  --num_diffusion_steps 100 \
+  --num_inference_steps 32
 ```
 
 ### Step 7: Evaluate Your Policy
 
 ```bash
-python 07_evaluate_policy.py --checkpoint path/to/checkpoint.pt
+python 07_evaluate_policy.py --checkpoint /tmp/cabinet_policy_checkpoints/best_policy.pt
 ```
 
-Runs your trained policy in the simulation environment and reports success
-rate across multiple episodes and kitchen scenes.
+Runs your trained policy in simulation and reports success rate across episodes
+and scene splits (`pretrain` / `target`). The evaluator auto-detects whether
+the checkpoint is from the simple MLP, low-dim diffusion, or vision-chunk
+diffusion model.
+
+### Step 8: Visualize a Rollout
+
+```bash
+python 08_visualize_policy_rollout.py --checkpoint /tmp/cabinet_policy_checkpoints/best_policy.pt --offscreen
+```
+
+Visualizes policy behavior with the same chunked control logic used during
+evaluation.
 
 ---
 
@@ -284,21 +343,14 @@ dataset/
 
 ## Research Directions
 
-The MLP baseline in `06_train_policy.py` is intentionally simple — it
-demonstrates the pipeline but will basically always fail. Here are three
-fun directions to improve the model:
+This repository now includes a vision-conditioned diffusion baseline with action
+chunking. Good next steps are extending it toward stronger performance:
 
-### Minimal Diffusion Policy
+### Stronger Visual Backbone
 
-Replace the direct-regression MLP with a diffusion-based action generator.
-The core loop is to corrupt ground-truth actions with Gaussian noise,
-train the network to predict that noise conditioned on the current state, and
-at inference iteratively denoise from pure noise to produce an action. This
-properly handles multi-modal demonstrations (e.g., approaching the handle from
-the left vs. right) that MSE loss averages into useless mean actions.
-See [Chi et al., 2023](https://diffusion-policy.cs.columbia.edu/) for the
-full approach — a minimal version can be built in ~100 lines on top of the
-existing MLP backbone.
+Current model uses a lightweight CNN encoder for each camera. Consider
+upgrading to a stronger pretrained visual backbone and adding temporal fusion
+across observation steps.
 
 ### DAgger (Online Correction)
 
@@ -310,15 +362,12 @@ offline BC degrades at test time — by collecting data in the states the policy
 actually visits. Even one or two rounds of DAgger can dramatically improve
 robustness. See [Ross et al., 2011](https://arxiv.org/abs/1011.0686).
 
-### Action Chunking
+### Longer Action Horizon
 
 Instead of predicting one action per timestep, predict the next *K* actions at
-once and execute them open-loop before re-planning. This is the key idea behind
-ACT ([Zhao et al., 2023](https://arxiv.org/abs/2304.13705)) and directly fixes
-the jerky, temporally incoherent behavior of single-step BC. Fair warning, though, this will probably require a more sophisticated model (Transformer, Diffusion or other) to provide real benefits. Implementation is
-straightforward: widen the output head to `K * action_dim`, train with the same
-MSE loss over the full chunk, and add a small FIFO buffer at inference. Try
-sweeping K = 4, 8, 16 and compare smoothness and success rate.
+once and execute them open-loop before re-planning. This improves temporal
+coherence and often stabilizes manipulation rollouts. Practical sweeps:
+`n_action_steps = 8, 12, 16` and `n_obs_steps = 2, 4`.
 
 ### Other Ideas
 - Gaussian Mixture Model for output logits. Can ameliorate the MSE multimodality issue.
@@ -337,7 +386,7 @@ I'll continually update this section as students find bugs in the system. Please
 | `numpy version must be 2.2.5` | `pip install numpy==2.2.5` |
 | Rendering crashes on Mac | Use `mjpython` instead of `python` |
 | `GLFW error` on headless server | Set `export MUJOCO_GL=egl` or `osmesa` |
-| Out of GPU memory during training | Reduce batch size in `configs/diffusion_policy.yaml` |
+| Out of GPU / MPS memory during training | Reduce `batch_size`, `image_size`, `hidden_dim`, and `num_inference_steps` in `configs/diffusion_policy.yaml` |
 | Kitchen assets not found | Run `python -m robocasa.scripts.download_kitchen_assets` |
 
 ---

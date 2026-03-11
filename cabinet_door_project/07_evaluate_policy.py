@@ -25,6 +25,7 @@ import argparse
 import os
 import sys
 import time
+from pathlib import Path
 
 # Force osmesa (CPU offscreen renderer) on Linux/WSL2 -- EGL requires
 # /dev/dri device access that is unavailable in WSL environments.
@@ -34,8 +35,21 @@ if sys.platform == "linux":
 
 import numpy as np
 
+
+def ensure_local_dependency_paths():
+    repo_root = Path(__file__).resolve().parents[1]
+    for dep in ("robocasa", "robosuite"):
+        dep_path = repo_root / dep
+        if dep_path.exists():
+            dep_str = str(dep_path)
+            if dep_str not in sys.path:
+                sys.path.insert(0, dep_str)
+
+
+ensure_local_dependency_paths()
 import robocasa  # noqa: F401
 from robocasa.utils.env_utils import create_env
+from policy_models import DiffusionActionMLP, SimplePolicy, VisionDiffusionChunkPolicy
 
 
 def print_section(title):
@@ -47,39 +61,44 @@ def print_section(title):
 def load_policy(checkpoint_path, device):
     """Load a trained policy checkpoint."""
     import torch
-    import torch.nn as nn
 
     checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
 
     state_dim = checkpoint["state_dim"]
     action_dim = checkpoint["action_dim"]
+    model_type = checkpoint.get("model_type", "simple_mlp")
 
-    class SimplePolicy(nn.Module):
-        def __init__(self, state_dim, action_dim, hidden_dim=256):
-            super().__init__()
-            self.net = nn.Sequential(
-                nn.Linear(state_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, hidden_dim),
-                nn.ReLU(),
-                nn.Linear(hidden_dim, action_dim),
-                nn.Tanh(),
-            )
-
-        def forward(self, state):
-            return self.net(state)
-
-    model = SimplePolicy(state_dim, action_dim).to(device)
+    if model_type == "vision_diffusion_chunk":
+        model = VisionDiffusionChunkPolicy(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            image_keys=checkpoint.get(
+                "image_keys",
+                ["robot0_agentview_left", "robot0_agentview_right", "robot0_eye_in_hand"],
+            ),
+            n_obs_steps=checkpoint.get("n_obs_steps", 2),
+            n_action_steps=checkpoint.get("n_action_steps", 8),
+            num_diffusion_steps=checkpoint.get("num_diffusion_steps", 100),
+            vision_feature_dim=checkpoint.get("vision_feature_dim", 256),
+            hidden_dim=checkpoint.get("hidden_dim", 768),
+        ).to(device)
+    elif model_type == "diffusion_mlp":
+        model = DiffusionActionMLP(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            num_diffusion_steps=checkpoint.get("num_diffusion_steps", 100),
+            hidden_dim=checkpoint.get("hidden_dim", 512),
+        ).to(device)
+    else:
+        model = SimplePolicy(state_dim, action_dim).to(device)
     model.load_state_dict(checkpoint["model_state_dict"])
     model.eval()
 
     print(f"Loaded policy from: {checkpoint_path}")
     print(f"  Trained for {checkpoint['epoch']} epochs, loss={checkpoint['loss']:.6f}")
-    print(f"  State dim: {state_dim}, Action dim: {action_dim}")
+    print(f"  State dim: {state_dim}, Action dim: {action_dim}, Type: {model_type}")
 
-    return model, state_dim, action_dim
+    return model, state_dim, action_dim, checkpoint
 
 
 def extract_state(obs, state_dim):
@@ -111,10 +130,22 @@ def extract_state(obs, state_dim):
     return state
 
 
+def preprocess_image_for_model(img, image_size):
+    import torch
+
+    img_t = torch.from_numpy(img.astype(np.float32)).permute(2, 0, 1).unsqueeze(0) / 255.0
+    if img_t.shape[-1] != image_size or img_t.shape[-2] != image_size:
+        img_t = torch.nn.functional.interpolate(
+            img_t, size=(image_size, image_size), mode="bilinear", align_corners=False
+        )
+    return img_t.squeeze(0).numpy()
+
+
 def run_evaluation(
     model,
     state_dim,
     action_dim,
+    checkpoint,
     num_rollouts,
     max_steps,
     split,
@@ -126,6 +157,14 @@ def run_evaluation(
     import imageio
 
     device = next(model.parameters()).device
+    model_type = checkpoint.get("model_type", "simple_mlp")
+    state_mean = state_std = action_mean = action_std = None
+    image_keys = checkpoint.get("image_keys", [])
+    if "state_mean" in checkpoint:
+        state_mean = torch.as_tensor(checkpoint["state_mean"], device=device).squeeze(0)
+        state_std = torch.as_tensor(checkpoint["state_std"], device=device).squeeze(0)
+        action_mean = torch.as_tensor(checkpoint["action_mean"], device=device).squeeze(0)
+        action_std = torch.as_tensor(checkpoint["action_std"], device=device).squeeze(0)
 
     env = create_env(
         env_name="OpenCabinet",
@@ -154,13 +193,70 @@ def run_evaluation(
 
         ep_reward = 0.0
         success = False
+        action_queue = []
+        state_hist = []
+        img_hist = {k: [] for k in image_keys}
+        n_obs_steps = int(checkpoint.get("n_obs_steps", 2))
+        image_size = int(checkpoint.get("image_size", 96))
 
         for step in range(max_steps):
-            # Extract state and predict action
+            # Extract observation and predict action/chunk
             state = extract_state(obs, state_dim)
+            if model_type == "vision_diffusion_chunk":
+                state_hist.append(state.astype(np.float32))
+                if len(state_hist) > n_obs_steps:
+                    state_hist.pop(0)
+                for cam in image_keys:
+                    obs_key = f"{cam}_image"
+                    img_hist[cam].append(
+                        preprocess_image_for_model(obs[obs_key], image_size).astype(
+                            np.float32
+                        )
+                    )
+                    if len(img_hist[cam]) > n_obs_steps:
+                        img_hist[cam].pop(0)
+                while len(state_hist) < n_obs_steps:
+                    state_hist.insert(0, state_hist[0].copy())
+                    for cam in image_keys:
+                        img_hist[cam].insert(0, img_hist[cam][0].copy())
+
             with torch.no_grad():
-                state_tensor = torch.from_numpy(state).unsqueeze(0).to(device)
-                action = model(state_tensor).cpu().numpy().squeeze(0)
+                if model_type == "vision_diffusion_chunk":
+                    if not action_queue:
+                        state_np = np.stack(state_hist, axis=0)[None]
+                        state_t = torch.from_numpy(state_np).to(device)
+                        state_t = (state_t - state_mean.view(1, 1, -1)) / state_std.view(
+                            1, 1, -1
+                        )
+                        obs_dict = {"state": state_t}
+                        for cam in image_keys:
+                            img_np = np.stack(img_hist[cam], axis=0)[None]
+                            obs_dict[cam] = torch.from_numpy(img_np).to(device)
+                        action_norm = model.sample_action_chunk(
+                            obs_dict,
+                            num_inference_steps=int(
+                                checkpoint.get("num_inference_steps", 32)
+                            ),
+                        )
+                        action_chunk = (
+                            action_norm * action_std.view(1, 1, -1)
+                            + action_mean.view(1, 1, -1)
+                        ).cpu().numpy().squeeze(0)
+                        action_queue.extend([a for a in action_chunk])
+                    action = action_queue.pop(0)
+                elif model_type == "diffusion_mlp":
+                    state_tensor = torch.from_numpy(state).unsqueeze(0).to(device)
+                    state_norm = (state_tensor - state_mean) / state_std
+                    action_norm = model.sample_actions(
+                        state_norm,
+                        num_inference_steps=checkpoint.get("num_inference_steps", 20),
+                    )
+                    action = (
+                        action_norm * action_std.unsqueeze(0) + action_mean.unsqueeze(0)
+                    ).cpu().numpy().squeeze(0)
+                else:
+                    state_tensor = torch.from_numpy(state).unsqueeze(0).to(device)
+                    action = model(state_tensor).cpu().numpy().squeeze(0)
 
             # Pad action to match environment action dim if needed
             env_action_dim = env.action_dim
@@ -240,11 +336,16 @@ def main():
     print("  OpenCabinet - Policy Evaluation")
     print("=" * 60)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     print(f"Device: {device}")
 
     # Load the trained policy
-    model, state_dim, action_dim = load_policy(args.checkpoint, device)
+    model, state_dim, action_dim, checkpoint = load_policy(args.checkpoint, device)
 
     # Run evaluation
     print_section(f"Evaluating on {args.split} split ({args.num_rollouts} episodes)")
@@ -253,6 +354,7 @@ def main():
         model=model,
         state_dim=state_dim,
         action_dim=action_dim,
+        checkpoint=checkpoint,
         num_rollouts=args.num_rollouts,
         max_steps=args.max_steps,
         split=args.split,
