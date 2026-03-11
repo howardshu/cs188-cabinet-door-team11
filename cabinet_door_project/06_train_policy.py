@@ -622,6 +622,7 @@ def train_vision_diffusion_chunk_policy(config):
     os.makedirs(checkpoint_dir, exist_ok=True)
     epoch_metrics_path = os.path.join(checkpoint_dir, "training_metrics.csv")
     sweep_metrics_path = os.path.join(checkpoint_dir, "inference_sweep_metrics.csv")
+    step_metrics_path = os.path.join(checkpoint_dir, "training_steps.csv")
     with open(epoch_metrics_path, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(
@@ -646,6 +647,16 @@ def train_vision_diffusion_chunk_policy(config):
                 "success_rate",
                 "num_rollouts",
                 "max_steps",
+            ]
+        )
+    with open(step_metrics_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "epoch",
+                "step_in_epoch",
+                "global_step",
+                "running_train_loss",
             ]
         )
     best_loss = float("inf")
@@ -833,6 +844,16 @@ def train_vision_diffusion_chunk_policy(config):
                     f"global_step {global_step:7d} loss {running_loss:.6f}",
                     flush=True,
                 )
+                with open(step_metrics_path, "a", newline="") as f:
+                    writer = csv.writer(f)
+                    writer.writerow(
+                        [
+                            epoch + 1,
+                            num_batches,
+                            global_step,
+                            float(running_loss),
+                        ]
+                    )
             if max_train_steps is not None and num_batches >= int(max_train_steps):
                 break
 
