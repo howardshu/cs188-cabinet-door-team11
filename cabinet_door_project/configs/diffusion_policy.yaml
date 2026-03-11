@@ -7,8 +7,8 @@ image_keys:
   - robot0_agentview_right
   - robot0_eye_in_hand
 state_key: observation.state
-image_size: 96
-vision_feature_dim: 256
+image_size: 64
+vision_feature_dim: 128
 hidden_dim: 512
 
 # Temporal settings
@@ -22,7 +22,7 @@ num_inference_steps: 16
 
 # Optimization / runtime
 epochs: 40
-batch_size: 32
+batch_size: 16
 learning_rate: 0.0001
 weight_decay: 1.0e-6
 lr_warmup_steps: 500
