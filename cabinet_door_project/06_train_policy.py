@@ -1351,6 +1351,33 @@ def main():
     # Build config from args or YAML file
     if args.config:
         config = load_config(args.config)
+        # CLI flags explicitly provided by user should override YAML values.
+        # This keeps `--config ... --checkpoint_dir ...` behavior intuitive.
+        cli_overrides = {
+            "policy": args.policy,
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "learning_rate": args.lr,
+            "checkpoint_dir": args.checkpoint_dir,
+            "hidden_dim": args.hidden_dim,
+            "num_diffusion_steps": args.num_diffusion_steps,
+            "num_inference_steps": args.num_inference_steps,
+            "max_episodes": args.max_episodes,
+            "horizon": args.horizon,
+            "n_obs_steps": args.n_obs_steps,
+            "n_action_steps": args.n_action_steps,
+            "vision_feature_dim": args.vision_feature_dim,
+            "image_size": args.image_size,
+            "num_workers": args.num_workers,
+            "weight_decay": args.weight_decay,
+            "lr_warmup_steps": args.lr_warmup_steps,
+            "checkpoint_every": args.checkpoint_every,
+            "log_every_steps": args.log_every_steps,
+            "dataset_path": args.dataset_path,
+        }
+        for key, value in cli_overrides.items():
+            if f"--{key}" in sys.argv:
+                config[key] = value
     else:
         config = {
             "policy": args.policy,
@@ -1374,8 +1401,6 @@ def main():
             "log_every_steps": args.log_every_steps,
             "dataset_path": args.dataset_path,
         }
-    if args.dataset_path is not None:
-        config["dataset_path"] = args.dataset_path
 
     policy_type = config.get("policy", "vision_diffusion_chunk")
     if policy_type == "simple":
