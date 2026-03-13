@@ -682,23 +682,37 @@ def train_vision_diffusion_chunk_policy(config):
             )
         return img_t.squeeze(0).numpy()
 
+    ROBOCASA_STATE_KEYS = [
+        "robot0_base_pos",
+        "robot0_base_quat",
+        "robot0_base_to_eef_pos",
+        "robot0_base_to_eef_quat",
+        "robot0_gripper_qpos",
+    ]
+
     def extract_state(obs):
-        state_parts = []
-        state_keys = sorted(
-            k
-            for k in obs.keys()
-            if not k.endswith("_image") and isinstance(obs[k], np.ndarray)
-        )
-        for key in state_keys:
-            state_parts.append(obs[key].flatten())
-        if not state_parts:
+        parts = []
+        for key in ROBOCASA_STATE_KEYS:
+            if key in obs:
+                parts.append(obs[key].flatten())
+        if not parts:
             return np.zeros(dataset.state_dim, dtype=np.float32)
-        state = np.concatenate(state_parts).astype(np.float32)
+        state = np.concatenate(parts).astype(np.float32)
         if len(state) < dataset.state_dim:
             state = np.pad(state, (0, dataset.state_dim - len(state)))
         elif len(state) > dataset.state_dim:
             state = state[: dataset.state_dim]
         return state
+
+    def remap_action_dataset_to_env(action):
+        env_action = np.zeros_like(action)
+        env_action[0:3] = action[5:8]
+        env_action[3:6] = action[8:11]
+        env_action[6] = action[3]
+        env_action[7:10] = action[0:3]
+        env_action[10] = action[11]
+        env_action[11] = action[4]
+        return env_action
 
     def compute_validation_metrics():
         model.eval()
@@ -789,6 +803,7 @@ def train_vision_diffusion_chunk_policy(config):
                         ).cpu().numpy().squeeze(0)
                         action_queue.extend([a for a in action_chunk])
                 action = action_queue.pop(0)
+                action = remap_action_dataset_to_env(action)
                 env_action_dim = env.action_dim
                 if len(action) < env_action_dim:
                     action = np.pad(action, (0, env_action_dim - len(action)))

@@ -128,21 +128,53 @@ def load_policy(checkpoint_path, device):
     return model, state_dim, action_dim, ckpt
 
 
+ROBOCASA_STATE_KEYS = [
+    "robot0_base_pos",
+    "robot0_base_quat",
+    "robot0_base_to_eef_pos",
+    "robot0_base_to_eef_quat",
+    "robot0_gripper_qpos",
+]
+
+
 def extract_state(obs, state_dim):
-    """Flatten non-image observations into a state vector of length state_dim."""
+    """Extract a fixed-size state vector from observations.
+
+    Uses the exact key ordering from the RoboCasa LeRobot dataset's
+    modality.json so that the vector matches what the policy was trained on.
+    """
     parts = []
-    for key in sorted(obs.keys()):
-        val = obs[key]
-        if isinstance(val, np.ndarray) and not key.endswith("_image"):
-            parts.append(val.flatten())
+    for key in ROBOCASA_STATE_KEYS:
+        if key in obs:
+            parts.append(obs[key].flatten())
+
     if not parts:
         return np.zeros(state_dim, dtype=np.float32)
+
     state = np.concatenate(parts).astype(np.float32)
+
     if len(state) < state_dim:
         state = np.pad(state, (0, state_dim - len(state)))
     elif len(state) > state_dim:
         state = state[:state_dim]
+
     return state
+
+
+def remap_action_dataset_to_env(action):
+    """Remap a 12-dim action from dataset ordering to environment ordering.
+
+    Dataset (modality.json):  [base_motion(4), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
+    Environment (composite controller order): [eef_pos(3), eef_rot(3), torso(1), base_fwd/side/yaw(3), gripper(1), control_mode(1)]
+    """
+    env_action = np.zeros_like(action)
+    env_action[0:3] = action[5:8]    # eef_position
+    env_action[3:6] = action[8:11]   # eef_rotation
+    env_action[6] = action[3]        # torso (dataset base_motion[3])
+    env_action[7:10] = action[0:3]   # base_motion (fwd, side, yaw)
+    env_action[10] = action[11]      # gripper
+    env_action[11] = action[4]       # control_mode
+    return env_action
 
 
 def preprocess_image_for_model(img, image_size):
@@ -270,7 +302,8 @@ def run_onscreen(model, state_dim, action_dim, args):
                 else:
                     action = model(state_tensor).cpu().numpy().squeeze(0)
 
-            # Pad / trim to environment's expected action dimension
+            action = remap_action_dataset_to_env(action)
+
             env_dim = env.action_dim
             if len(action) < env_dim:
                 action = np.pad(action, (0, env_dim - len(action)))
@@ -425,6 +458,8 @@ def run_offscreen(model, state_dim, action_dim, args):
                     ).cpu().numpy().squeeze(0)
                 else:
                     action = model(state_tensor).cpu().numpy().squeeze(0)
+
+            action = remap_action_dataset_to_env(action)
 
             env_dim = env.action_dim
             if len(action) < env_dim:

@@ -289,13 +289,14 @@ evaluation.
 
 ### Action Space (PandaOmron)
 
-| Key | Dim | Description |
-|-----|-----|-------------|
-| `end_effector_position` | 3 | Delta (dx, dy, dz) for the end-effector |
-| `end_effector_rotation` | 3 | Delta rotation (axis-angle) |
-| `gripper_close` | 1 | 0 = open, 1 = close |
-| `base_motion` | 4 | (forward, side, yaw, torso) |
-| `control_mode` | 1 | 0 = arm control, 1 = base control |
+| Index | Key | Dim | Description |
+|-------|-----|-----|-------------|
+| 0-2 | `end_effector_position` | 3 | Delta (dx, dy, dz) for the end-effector |
+| 3-5 | `end_effector_rotation` | 3 | Delta rotation (axis-angle) |
+| 6 | `torso` | 1 | Torso lift joint |
+| 7-9 | `base_motion` | 3 | (forward, side, yaw) |
+| 10 | `gripper_close` | 1 | -1 = open, 1 = close |
+| 11 | `control_mode` | 1 | -1 = arm control, 1 = base control |
 
 ### Dataset Format (LeRobot)
 
