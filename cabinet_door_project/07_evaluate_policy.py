@@ -58,7 +58,7 @@ def print_section(title):
     print(f"{'=' * 60}")
 
 
-def load_policy(checkpoint_path, device):
+def load_policy(checkpoint_path, device, forced_model_type="auto"):
     """Load a trained policy checkpoint."""
     import torch
 
@@ -66,7 +66,13 @@ def load_policy(checkpoint_path, device):
 
     state_dim = checkpoint["state_dim"]
     action_dim = checkpoint["action_dim"]
-    model_type = checkpoint.get("model_type", "simple_mlp")
+    ckpt_model_type = checkpoint.get("model_type", "simple_mlp")
+    model_type = ckpt_model_type if forced_model_type == "auto" else forced_model_type
+    valid_types = {"simple_mlp", "diffusion_mlp", "vision_diffusion_chunk"}
+    if model_type not in valid_types:
+        raise ValueError(
+            f"Unsupported model_type '{model_type}'. Supported: {sorted(valid_types)}"
+        )
 
     if model_type == "vision_diffusion_chunk":
         model = VisionDiffusionChunkPolicy(
@@ -91,43 +97,73 @@ def load_policy(checkpoint_path, device):
         ).to(device)
     else:
         model = SimplePolicy(state_dim, action_dim).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    try:
+        model.load_state_dict(checkpoint["model_state_dict"])
+    except Exception as e:
+        raise RuntimeError(
+            f"Failed to load checkpoint weights with model_type='{model_type}'. "
+            f"Checkpoint model_type='{ckpt_model_type}'. "
+            "Try --model_type auto or match the checkpoint type explicitly."
+        ) from e
     model.eval()
 
     print(f"Loaded policy from: {checkpoint_path}")
     print(f"  Trained for {checkpoint['epoch']} epochs, loss={checkpoint['loss']:.6f}")
-    print(f"  State dim: {state_dim}, Action dim: {action_dim}, Type: {model_type}")
+    print(
+        f"  State dim: {state_dim}, Action dim: {action_dim}, "
+        f"Type: {model_type} (ckpt: {ckpt_model_type})"
+    )
 
     return model, state_dim, action_dim, checkpoint
 
 
+ROBOCASA_STATE_KEYS = [
+    "robot0_base_pos",
+    "robot0_base_quat",
+    "robot0_base_to_eef_pos",
+    "robot0_base_to_eef_quat",
+    "robot0_gripper_qpos",
+]
+
+
 def extract_state(obs, state_dim):
-    """Extract a fixed-size state vector from observations."""
-    state_parts = []
+    """Extract a fixed-size state vector from observations.
 
-    # Gather available state observations in a consistent order
-    state_keys = sorted(
-        k
-        for k in obs.keys()
-        if not k.endswith("_image") and isinstance(obs[k], np.ndarray)
-    )
+    Uses the exact key ordering from the RoboCasa LeRobot dataset's
+    modality.json so that the vector matches what the policy was trained on.
+    """
+    parts = []
+    for key in ROBOCASA_STATE_KEYS:
+        if key in obs:
+            parts.append(obs[key].flatten())
 
-    for key in state_keys:
-        val = obs[key].flatten()
-        state_parts.append(val)
-
-    if not state_parts:
+    if not parts:
         return np.zeros(state_dim, dtype=np.float32)
 
-    state = np.concatenate(state_parts).astype(np.float32)
+    state = np.concatenate(parts).astype(np.float32)
 
-    # Pad or truncate to match expected state_dim
     if len(state) < state_dim:
         state = np.pad(state, (0, state_dim - len(state)))
     elif len(state) > state_dim:
         state = state[:state_dim]
 
     return state
+
+
+def remap_action_dataset_to_env(action):
+    """Remap a 12-dim action from dataset ordering to environment ordering.
+
+    Dataset (modality.json):  [base_motion(4), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
+    Environment (composite controller order): [eef_pos(3), eef_rot(3), torso(1), base_fwd/side/yaw(3), gripper(1), control_mode(1)]
+    """
+    env_action = np.zeros_like(action)
+    env_action[0:3] = action[5:8]    # eef_position
+    env_action[3:6] = action[8:11]   # eef_rotation
+    env_action[6] = action[3]        # torso (dataset base_motion[3])
+    env_action[7:10] = action[0:3]   # base_motion (fwd, side, yaw)
+    env_action[10] = action[11]      # gripper
+    env_action[11] = action[4]       # control_mode
+    return env_action
 
 
 def preprocess_image_for_model(img, image_size):
@@ -258,6 +294,9 @@ def run_evaluation(
                     state_tensor = torch.from_numpy(state).unsqueeze(0).to(device)
                     action = model(state_tensor).cpu().numpy().squeeze(0)
 
+            # Remap from dataset action order to environment action order
+            action = remap_action_dataset_to_env(action)
+
             # Pad action to match environment action dim if needed
             env_action_dim = env.action_dim
             if len(action) < env_action_dim:
@@ -324,6 +363,13 @@ def main():
         help="Path to save evaluation video (optional)",
     )
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
+    parser.add_argument(
+        "--model_type",
+        type=str,
+        default="auto",
+        choices=["auto", "simple_mlp", "diffusion_mlp", "vision_diffusion_chunk"],
+        help="Model type override. Use auto to read from checkpoint metadata.",
+    )
     args = parser.parse_args()
 
     try:
@@ -345,7 +391,9 @@ def main():
     print(f"Device: {device}")
 
     # Load the trained policy
-    model, state_dim, action_dim, checkpoint = load_policy(args.checkpoint, device)
+    model, state_dim, action_dim, checkpoint = load_policy(
+        args.checkpoint, device, forced_model_type=args.model_type
+    )
 
     # Run evaluation
     print_section(f"Evaluating on {args.split} split ({args.num_rollouts} episodes)")

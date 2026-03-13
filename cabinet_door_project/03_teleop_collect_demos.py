@@ -119,20 +119,36 @@ def load_policy(checkpoint_path, device):
     return model, state_dim, action_dim, ckpt
 
 
+ROBOCASA_STATE_KEYS = [
+    "robot0_base_pos",
+    "robot0_base_quat",
+    "robot0_base_to_eef_pos",
+    "robot0_base_to_eef_quat",
+    "robot0_gripper_qpos",
+]
+
+
 def extract_state(obs, state_dim):
-    """Flatten non-image observations into a state vector of length state_dim."""
+    """Extract a fixed-size state vector from observations.
+
+    Uses the exact key ordering from the RoboCasa LeRobot dataset's
+    modality.json so that the vector matches what the policy was trained on.
+    """
     parts = []
-    for key in sorted(obs.keys()):
-        val = obs[key]
-        if isinstance(val, np.ndarray) and not key.endswith("_image"):
-            parts.append(val.flatten())
+    for key in ROBOCASA_STATE_KEYS:
+        if key in obs:
+            parts.append(obs[key].flatten())
+
     if not parts:
         return np.zeros(state_dim, dtype=np.float32)
+
     state = np.concatenate(parts).astype(np.float32)
+
     if len(state) < state_dim:
         state = np.pad(state, (0, state_dim - len(state)))
     elif len(state) > state_dim:
         state = state[:state_dim]
+
     return state
 
 
