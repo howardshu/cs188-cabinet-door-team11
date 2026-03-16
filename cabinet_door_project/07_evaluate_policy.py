@@ -44,12 +44,22 @@ def ensure_local_dependency_paths():
             dep_str = str(dep_path)
             if dep_str not in sys.path:
                 sys.path.insert(0, dep_str)
+    dp_path = Path(__file__).resolve().parent / "diffusion_policy"
+    if dp_path.exists():
+        dp_str = str(dp_path)
+        if dp_str not in sys.path:
+            sys.path.insert(0, dp_str)
 
 
 ensure_local_dependency_paths()
 import robocasa  # noqa: F401
 from robocasa.utils.env_utils import create_env
-from policy_models import DiffusionActionMLP, SimplePolicy, VisionDiffusionChunkPolicy
+from policy_models import (
+    DiffusionActionMLP,
+    SimplePolicy,
+    VisionDiffusionChunkPolicy,
+    BCUnet1DPolicy,
+)
 
 
 def print_section(title):
@@ -68,13 +78,42 @@ def load_policy(checkpoint_path, device, forced_model_type="auto"):
     action_dim = checkpoint["action_dim"]
     ckpt_model_type = checkpoint.get("model_type", "simple_mlp")
     model_type = ckpt_model_type if forced_model_type == "auto" else forced_model_type
-    valid_types = {"simple_mlp", "diffusion_mlp", "vision_diffusion_chunk"}
+    valid_types = {
+        "simple_mlp",
+        "diffusion_mlp",
+        "vision_diffusion_chunk",
+        "unet_lowdim_diffusion",
+        "bc_unet_lowdim",
+    }
     if model_type not in valid_types:
         raise ValueError(
             f"Unsupported model_type '{model_type}'. Supported: {sorted(valid_types)}"
         )
 
-    if model_type == "vision_diffusion_chunk":
+    if model_type == "unet_lowdim_diffusion":
+        from diffusion_policy.model.diffusion.conditional_unet1d import ConditionalUnet1D
+        obs_cond_dim = checkpoint.get("n_obs_steps", 2) * state_dim
+        model = ConditionalUnet1D(
+            input_dim=action_dim,
+            global_cond_dim=obs_cond_dim,
+            diffusion_step_embed_dim=checkpoint.get("diffusion_step_embed_dim", 256),
+            down_dims=checkpoint.get("down_dims", [256, 512, 1024]),
+            kernel_size=checkpoint.get("kernel_size", 5),
+            n_groups=checkpoint.get("n_groups", 8),
+            cond_predict_scale=checkpoint.get("cond_predict_scale", False),
+        ).to(device)
+    elif model_type == "bc_unet_lowdim":
+        model = BCUnet1DPolicy(
+            state_dim=state_dim,
+            action_dim=action_dim,
+            n_obs_steps=checkpoint.get("n_obs_steps", 2),
+            n_action_steps=checkpoint.get("n_action_steps", 16),
+            base_channels=checkpoint.get("base_channels", 32),
+            channel_mults=checkpoint.get("channel_mults", [1, 2]),
+            kernel_size=checkpoint.get("kernel_size", 5),
+            cond_dim=checkpoint.get("cond_dim", 256),
+        ).to(device)
+    elif model_type == "vision_diffusion_chunk":
         model = VisionDiffusionChunkPolicy(
             state_dim=state_dim,
             action_dim=action_dim,
@@ -126,11 +165,135 @@ ROBOCASA_STATE_KEYS = [
 ]
 
 
-def extract_state(obs, state_dim):
+def _quat_to_rot(quat):
+    """Convert a [w, x, y, z] quaternion to a 3x3 rotation matrix."""
+    w, x, y, z = quat
+    return np.array([
+        [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
+        [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
+        [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)],
+    ])
+
+
+def _find_handle_site(env):
+    fxtr = env.fxtr
+    fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+    candidates = [
+        n for n in env.sim.model.site_names
+        if "handle" in n.lower() and fxtr_name in n
+    ]
+    if not candidates:
+        candidates = [n for n in env.sim.model.site_names if "handle" in n.lower()]
+    return candidates[0] if candidates else None
+
+
+def _get_handle_world_pos(env):
+    """Get the cabinet handle position in world frame (prefers sites)."""
+    site = _find_handle_site(env)
+    if site is not None:
+        site_id = env.sim.model.site_name2id(site)
+        return env.sim.data.site_xpos[site_id].copy().astype(np.float32)
+
+    fxtr = env.fxtr
+    fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+    for name in env.sim.model.body_names:
+        if fxtr_name in name and "handle" in name:
+            body_id = env.sim.model.body_name2id(name)
+            return env.sim.data.body_xpos[body_id].copy().astype(np.float32)
+    for name in env.sim.model.body_names:
+        if "handle" in name.lower():
+            body_id = env.sim.model.body_name2id(name)
+            return env.sim.data.body_xpos[body_id].copy().astype(np.float32)
+
+    candidates = [n for n in env.sim.model.geom_names if "handle" in n.lower()]
+    if candidates:
+        geom_id = env.sim.model.geom_name2id(candidates[0])
+        return env.sim.data.geom_xpos[geom_id].copy().astype(np.float32)
+    return np.zeros(3, dtype=np.float32)
+
+
+def get_handle_base_pos(obs, env):
+    """Get the cabinet handle position in robot base frame."""
+    handle_world = _get_handle_world_pos(env)
+    base_pos = obs["robot0_base_pos"]
+    base_quat = obs["robot0_base_quat"]
+    R = _quat_to_rot(base_quat)
+    return (R.T @ (handle_world - base_pos)).astype(np.float32)
+
+
+AUGMENTED_OBS_KEYS = [
+    "observation.handle_pos",
+    "observation.handle_to_eef_pos",
+    "observation.door_openness",
+]
+
+
+def compute_augmented_features(obs, env, augmented_keys):
+    """Compute augmented features at runtime to match 05b training data.
+
+    Produces the same features that 05b_augment_handle_data.py bakes into
+    the augmented parquet files: handle world position, handle-to-eef vector,
+    and door openness.
+    """
+    if not augmented_keys:
+        return np.array([], dtype=np.float32)
+
+    handle_world = _get_handle_world_pos(env)
+
+    base_pos = obs["robot0_base_pos"].flatten()
+    base_quat = obs["robot0_base_quat"].flatten()
+    eef_rel = obs["robot0_base_to_eef_pos"].flatten()
+    R = _quat_to_rot(base_quat)
+    eef_world = base_pos + R @ eef_rel
+
+    parts = []
+    for key in augmented_keys:
+        if key == "observation.handle_pos":
+            parts.append(handle_world)
+        elif key == "observation.handle_to_eef_pos":
+            parts.append((eef_world - handle_world).astype(np.float32))
+        elif key == "observation.door_openness":
+            try:
+                door_state = env.fxtr.get_door_state(env)
+                openness = float(np.mean(list(door_state.values())))
+            except Exception:
+                openness = 0.0
+            parts.append(np.array([openness], dtype=np.float32))
+
+    return np.concatenate(parts) if parts else np.array([], dtype=np.float32)
+
+
+def check_any_door_open(env, threshold_rad=0.3):
+    """Check if ANY single door hinge exceeds a qpos threshold (radians)."""
+    try:
+        fxtr = env.fxtr
+        fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+        joint_ids = [
+            i for i, n in enumerate(env.sim.model.joint_names)
+            if fxtr_name in n and "door" in n.lower()
+        ]
+        if joint_ids:
+            for jidx in joint_ids:
+                addr = env.sim.model.joint(jidx).qposadr[0]
+                qpos = env.sim.data.qpos[addr]
+                if abs(float(qpos)) > threshold_rad:
+                    return True
+            return False
+        door_state = env.fxtr.get_door_state(env)
+        norm_thresh = threshold_rad / (np.pi / 2)
+        return any(v >= norm_thresh for v in door_state.values())
+    except Exception:
+        return env._check_success()
+
+
+def extract_state(obs, state_dim, env=None, use_handle_pos=False, augmented_obs_keys=None):
     """Extract a fixed-size state vector from observations.
 
     Uses the exact key ordering from the RoboCasa LeRobot dataset's
     modality.json so that the vector matches what the policy was trained on.
+
+    When use_handle_pos is True, appends handle position in base frame (legacy).
+    When augmented_obs_keys is provided, appends world-frame features matching 05b.
     """
     parts = []
     for key in ROBOCASA_STATE_KEYS:
@@ -142,6 +305,14 @@ def extract_state(obs, state_dim):
 
     state = np.concatenate(parts).astype(np.float32)
 
+    if use_handle_pos and env is not None:
+        handle_base = get_handle_base_pos(obs, env)
+        state = np.concatenate([state, handle_base])
+
+    if augmented_obs_keys and env is not None:
+        aug = compute_augmented_features(obs, env, augmented_obs_keys)
+        state = np.concatenate([state, aug])
+
     if len(state) < state_dim:
         state = np.pad(state, (0, state_dim - len(state)))
     elif len(state) > state_dim:
@@ -150,19 +321,20 @@ def extract_state(obs, state_dim):
     return state
 
 
-def remap_action_dataset_to_env(action):
+def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0):
     """Remap a 12-dim action from dataset ordering to environment ordering.
 
     Dataset (modality.json):  [base_motion(4), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
-    Environment (composite controller order): [eef_pos(3), eef_rot(3), torso(1), base_fwd/side/yaw(3), gripper(1), control_mode(1)]
+    Environment (composite controller order): [eef_pos(3), eef_rot(3), gripper(1), base_motion(4), control_mode(1)]
     """
     env_action = np.zeros_like(action)
+    gripper = 1.0 if float(action[11]) > gripper_threshold else -1.0
+    base_mode = 1.0 if float(action[4]) > base_mode_threshold else -1.0
     env_action[0:3] = action[5:8]    # eef_position
     env_action[3:6] = action[8:11]   # eef_rotation
-    env_action[6] = action[3]        # torso (dataset base_motion[3])
-    env_action[7:10] = action[0:3]   # base_motion (fwd, side, yaw)
-    env_action[10] = action[11]      # gripper
-    env_action[11] = action[4]       # control_mode
+    env_action[6] = gripper          # gripper_close (binarized)
+    env_action[7:11] = action[0:4]   # base_motion (fwd, side, yaw, torso)
+    env_action[11] = base_mode       # control_mode (binarized)
     return env_action
 
 
@@ -177,6 +349,19 @@ def preprocess_image_for_model(img, image_size):
     return img_t.squeeze(0).numpy()
 
 
+def _sample_unet_actions(model, obs_cond, scheduler, n_action_steps, action_dim, device, num_inference_steps=16):
+    """Run DDPM reverse diffusion to sample an action chunk from the U-Net."""
+    import torch
+    scheduler.set_timesteps(num_inference_steps)
+    bsz = obs_cond.shape[0]
+    x = torch.randn((bsz, n_action_steps, action_dim), device=device)
+    for t in scheduler.timesteps:
+        t_batch = torch.full((bsz,), int(t.item()), device=device, dtype=torch.long)
+        pred_noise = model(x, t_batch, global_cond=obs_cond)
+        x = scheduler.step(pred_noise, t, x).prev_sample
+    return x
+
+
 def run_evaluation(
     model,
     state_dim,
@@ -187,6 +372,11 @@ def run_evaluation(
     split,
     video_path,
     seed,
+    use_relaxed_success=True,
+    execute_steps=None,
+    gripper_threshold=0.0,
+    base_mode_threshold=0.0,
+    success_threshold_rad=0.3,
 ):
     """Run evaluation rollouts and collect statistics."""
     import torch
@@ -194,6 +384,8 @@ def run_evaluation(
 
     device = next(model.parameters()).device
     model_type = checkpoint.get("model_type", "simple_mlp")
+    use_handle_pos = checkpoint.get("use_handle_pos", False)
+    augmented_obs_keys = checkpoint.get("augmented_obs_keys", None)
     state_mean = state_std = action_mean = action_std = None
     image_keys = checkpoint.get("image_keys", [])
     if "state_mean" in checkpoint:
@@ -201,6 +393,15 @@ def run_evaluation(
         state_std = torch.as_tensor(checkpoint["state_std"], device=device).squeeze(0)
         action_mean = torch.as_tensor(checkpoint["action_mean"], device=device).squeeze(0)
         action_std = torch.as_tensor(checkpoint["action_std"], device=device).squeeze(0)
+
+    noise_scheduler = None
+    if model_type == "unet_lowdim_diffusion":
+        from diffusers.schedulers.scheduling_ddpm import DDPMScheduler
+        noise_scheduler = DDPMScheduler(
+            num_train_timesteps=checkpoint.get("num_diffusion_steps", 100),
+            beta_schedule="squaredcos_cap_v2",
+            prediction_type="epsilon",
+        )
 
     env = create_env(
         env_name="OpenCabinet",
@@ -230,18 +431,30 @@ def run_evaluation(
         ep_reward = 0.0
         success = False
         action_queue = []
+        steps_since_plan = 0
         state_hist = []
         img_hist = {k: [] for k in image_keys}
         n_obs_steps = int(checkpoint.get("n_obs_steps", 2))
         image_size = int(checkpoint.get("image_size", 96))
+        n_action_steps = int(checkpoint.get("n_action_steps", 8))
+        if execute_steps is None:
+            execute_steps = int(checkpoint.get("execute_steps", n_action_steps))
 
         for step in range(max_steps):
-            # Extract observation and predict action/chunk
-            state = extract_state(obs, state_dim)
-            if model_type == "vision_diffusion_chunk":
+            state = extract_state(
+                obs, state_dim, env=env,
+                use_handle_pos=use_handle_pos,
+                augmented_obs_keys=augmented_obs_keys,
+            )
+
+            if model_type in ("vision_diffusion_chunk", "unet_lowdim_diffusion", "bc_unet_lowdim"):
                 state_hist.append(state.astype(np.float32))
                 if len(state_hist) > n_obs_steps:
                     state_hist.pop(0)
+                while len(state_hist) < n_obs_steps:
+                    state_hist.insert(0, state_hist[0].copy())
+
+            if model_type == "vision_diffusion_chunk":
                 for cam in image_keys:
                     obs_key = f"{cam}_image"
                     img_hist[cam].append(
@@ -251,13 +464,35 @@ def run_evaluation(
                     )
                     if len(img_hist[cam]) > n_obs_steps:
                         img_hist[cam].pop(0)
-                while len(state_hist) < n_obs_steps:
-                    state_hist.insert(0, state_hist[0].copy())
+                while len(img_hist.get(image_keys[0], [])) < n_obs_steps if image_keys else False:
                     for cam in image_keys:
                         img_hist[cam].insert(0, img_hist[cam][0].copy())
 
             with torch.no_grad():
-                if model_type == "vision_diffusion_chunk":
+                if model_type == "unet_lowdim_diffusion":
+                    if steps_since_plan >= execute_steps:
+                        action_queue.clear()
+                    if not action_queue:
+                        state_np = np.stack(state_hist, axis=0)
+                        state_t = torch.from_numpy(state_np).to(device)
+                        state_t = (state_t - state_mean.view(1, -1)) / state_std.view(1, -1)
+                        obs_cond = state_t.reshape(1, -1)
+                        action_norm = _sample_unet_actions(
+                            model, obs_cond, noise_scheduler,
+                            n_action_steps, action_dim, device,
+                            num_inference_steps=checkpoint.get("num_inference_steps", 16),
+                        )
+                        action_chunk = (
+                            action_norm * action_std.view(1, 1, -1)
+                            + action_mean.view(1, 1, -1)
+                        ).cpu().numpy().squeeze(0)
+                        action_queue.extend([a for a in action_chunk])
+                        steps_since_plan = 0
+                    action = action_queue.pop(0)
+                    steps_since_plan += 1
+                elif model_type == "vision_diffusion_chunk":
+                    if steps_since_plan >= execute_steps:
+                        action_queue.clear()
                     if not action_queue:
                         state_np = np.stack(state_hist, axis=0)[None]
                         state_t = torch.from_numpy(state_np).to(device)
@@ -279,7 +514,27 @@ def run_evaluation(
                             + action_mean.view(1, 1, -1)
                         ).cpu().numpy().squeeze(0)
                         action_queue.extend([a for a in action_chunk])
+                        steps_since_plan = 0
                     action = action_queue.pop(0)
+                    steps_since_plan += 1
+                elif model_type == "bc_unet_lowdim":
+                    if steps_since_plan >= execute_steps:
+                        action_queue.clear()
+                    if not action_queue:
+                        state_np = np.stack(state_hist, axis=0)[None]
+                        state_t = torch.from_numpy(state_np).to(device)
+                        state_t = (state_t - state_mean.view(1, 1, -1)) / state_std.view(
+                            1, 1, -1
+                        )
+                        action_norm = model(state_t)
+                        action_chunk = (
+                            action_norm * action_std.view(1, 1, -1)
+                            + action_mean.view(1, 1, -1)
+                        ).cpu().numpy().squeeze(0)
+                        action_queue.extend([a for a in action_chunk])
+                        steps_since_plan = 0
+                    action = action_queue.pop(0)
+                    steps_since_plan += 1
                 elif model_type == "diffusion_mlp":
                     state_tensor = torch.from_numpy(state).unsqueeze(0).to(device)
                     state_norm = (state_tensor - state_mean) / state_std
@@ -295,7 +550,11 @@ def run_evaluation(
                     action = model(state_tensor).cpu().numpy().squeeze(0)
 
             # Remap from dataset action order to environment action order
-            action = remap_action_dataset_to_env(action)
+            action = remap_action_dataset_to_env(
+                action,
+                gripper_threshold=gripper_threshold,
+                base_mode_threshold=base_mode_threshold,
+            )
 
             # Pad action to match environment action dim if needed
             env_action_dim = env.action_dim
@@ -313,7 +572,12 @@ def run_evaluation(
                 )[::-1]
                 video_writer.append_data(frame)
 
-            if env._check_success():
+            is_success = (
+                check_any_door_open(env, threshold_rad=success_threshold_rad)
+                if use_relaxed_success
+                else env._check_success()
+            )
+            if is_success:
                 success = True
                 break
 
@@ -344,7 +608,7 @@ def main():
         help="Path to policy checkpoint (.pt file)",
     )
     parser.add_argument(
-        "--num_rollouts", type=int, default=20, help="Number of evaluation episodes"
+        "--num_rollouts", type=int, default=50, help="Number of evaluation episodes"
     )
     parser.add_argument(
         "--max_steps", type=int, default=500, help="Max steps per episode"
@@ -367,8 +631,49 @@ def main():
         "--model_type",
         type=str,
         default="auto",
-        choices=["auto", "simple_mlp", "diffusion_mlp", "vision_diffusion_chunk"],
+        choices=[
+            "auto",
+            "simple_mlp",
+            "diffusion_mlp",
+            "vision_diffusion_chunk",
+            "unet_lowdim_diffusion",
+            "bc_unet_lowdim",
+        ],
         help="Model type override. Use auto to read from checkpoint metadata.",
+    )
+    parser.add_argument(
+        "--single_door_success",
+        action="store_true",
+        help="Deprecated. Relaxed success is now the default.",
+    )
+    parser.add_argument(
+        "--strict_success",
+        action="store_true",
+        help="Use env._check_success() (all doors) instead of relaxed criterion",
+    )
+    parser.add_argument(
+        "--success_threshold_rad",
+        type=float,
+        default=0.3,
+        help="Hinge joint qpos threshold (radians) for relaxed success",
+    )
+    parser.add_argument(
+        "--execute_steps",
+        type=int,
+        default=None,
+        help="Replan after this many steps from an action chunk (default: n_action_steps)",
+    )
+    parser.add_argument(
+        "--gripper_threshold",
+        type=float,
+        default=0.0,
+        help="Binarize gripper: >threshold => close, else open",
+    )
+    parser.add_argument(
+        "--base_mode_threshold",
+        type=float,
+        default=0.0,
+        help="Binarize base_mode/control_mode: >threshold => 1, else -1",
     )
     args = parser.parse_args()
 
@@ -398,6 +703,7 @@ def main():
     # Run evaluation
     print_section(f"Evaluating on {args.split} split ({args.num_rollouts} episodes)")
 
+    use_relaxed_success = not args.strict_success
     results = run_evaluation(
         model=model,
         state_dim=state_dim,
@@ -408,6 +714,11 @@ def main():
         split=args.split,
         video_path=args.video_path,
         seed=args.seed,
+        use_relaxed_success=use_relaxed_success,
+        execute_steps=args.execute_steps,
+        gripper_threshold=args.gripper_threshold,
+        base_mode_threshold=args.base_mode_threshold,
+        success_threshold_rad=args.success_threshold_rad,
     )
 
     # Print summary

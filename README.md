@@ -115,6 +115,9 @@ cabinet_door_project/
   06_train_policy.py             # Train simple MLP or diffusion policy (default)
   07_evaluate_policy.py          # Evaluate checkpoints (simple or diffusion)
   08_visualize_policy_rollout.py # Visualize rollouts (simple or diffusion)
+  05b_augment_handle_data.py     # Augment dataset with handle features (recommended)
+  11_train_bc_unet.py            # Train BC 1D U-Net policy (recommended)
+  12_run_ablations.py            # Run ablation suites (BC U-Net)
   policy_models.py               # Shared model definitions used by train/eval
   configs/
     diffusion_policy.yaml        # Starter diffusion hyperparameters
@@ -214,6 +217,31 @@ Trains the built-in vision-conditioned diffusion policy that uses all three
 cameras + robot state and predicts action chunks. Checkpoints are saved as
 `.pt` files and include model type + normalization statistics so evaluation and
 visualization scripts can load them automatically.
+
+### Recommended (Working Setup)
+
+For the OpenCabinet dataset size (~100 demos), the strongest results come from
+low-dim behavior cloning with handle features and action chunking:
+
+```bash
+# 1) Augment the dataset with handle features
+python 05b_augment_handle_data.py
+
+# 2) Train BC 1D U-Net (defaults: handle_pos + handle_to_eef, H=16, execute=8)
+python 11_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
+
+# 3) Evaluate (relaxed success is default)
+python 07_evaluate_policy.py \
+  --checkpoint /tmp/bc_unet_checkpoints/best_policy.pt \
+  --num_rollouts 50 \
+  --execute_steps 8
+```
+
+To run ablations for your report:
+
+```bash
+python 12_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
+```
 
 You can still run the simple MLP baseline for comparison:
 

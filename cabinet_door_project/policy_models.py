@@ -187,3 +187,127 @@ class VisionDiffusionChunkPolicy(nn.Module):
             pred_noise = self.forward(x, t_batch, obs_dict)
             x = scheduler.step(pred_noise, t, x).prev_sample
         return x
+
+
+class ConvBlock1D(nn.Module):
+    def __init__(self, in_ch, out_ch, kernel_size=5, groups=8):
+        super().__init__()
+        padding = kernel_size // 2
+        num_groups = min(groups, out_ch)
+        self.net = nn.Sequential(
+            nn.Conv1d(in_ch, out_ch, kernel_size=kernel_size, padding=padding),
+            nn.GroupNorm(num_groups=num_groups, num_channels=out_ch),
+            nn.SiLU(),
+            nn.Conv1d(out_ch, out_ch, kernel_size=kernel_size, padding=padding),
+            nn.GroupNorm(num_groups=num_groups, num_channels=out_ch),
+            nn.SiLU(),
+        )
+
+    def forward(self, x):
+        return self.net(x)
+
+
+class UNet1D(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        base_channels=64,
+        channel_mults=(1, 2, 4),
+        kernel_size=5,
+    ):
+        super().__init__()
+        self.downs = nn.ModuleList()
+        self.ups = nn.ModuleList()
+        ch = in_channels
+
+        for mult in channel_mults:
+            out_ch = base_channels * mult
+            self.downs.append(ConvBlock1D(ch, out_ch, kernel_size=kernel_size))
+            self.downs.append(
+                nn.Conv1d(out_ch, out_ch, kernel_size=4, stride=2, padding=1)
+            )
+            ch = out_ch
+
+        self.mid = ConvBlock1D(ch, ch, kernel_size=kernel_size)
+
+        for mult in reversed(channel_mults):
+            out_ch = base_channels * mult
+            self.ups.append(
+                nn.ConvTranspose1d(ch, out_ch, kernel_size=4, stride=2, padding=1)
+            )
+            self.ups.append(ConvBlock1D(ch + out_ch, out_ch, kernel_size=kernel_size))
+            ch = out_ch
+
+        self.final = nn.Conv1d(ch, out_channels, kernel_size=1)
+
+    @staticmethod
+    def _match_length(x, target_len):
+        if x.shape[-1] > target_len:
+            return x[..., :target_len]
+        if x.shape[-1] < target_len:
+            pad = target_len - x.shape[-1]
+            return nn.functional.pad(x, (0, pad))
+        return x
+
+    def forward(self, x):
+        skips = []
+        for i in range(0, len(self.downs), 2):
+            x = self.downs[i](x)
+            skips.append(x)
+            x = self.downs[i + 1](x)
+
+        x = self.mid(x)
+
+        for i in range(0, len(self.ups), 2):
+            x = self.ups[i](x)
+            skip = skips.pop()
+            x = self._match_length(x, skip.shape[-1])
+            x = torch.cat([x, skip], dim=1)
+            x = self.ups[i + 1](x)
+
+        return self.final(x)
+
+
+class BCUnet1DPolicy(nn.Module):
+    def __init__(
+        self,
+        state_dim,
+        action_dim,
+        n_obs_steps=2,
+        n_action_steps=16,
+        base_channels=32,
+        channel_mults=(1, 2),
+        kernel_size=5,
+        cond_dim=256,
+    ):
+        super().__init__()
+        self.state_dim = state_dim
+        self.action_dim = action_dim
+        self.n_obs_steps = n_obs_steps
+        self.n_action_steps = n_action_steps
+        self.cond_dim = cond_dim
+
+        self.cond_proj = nn.Sequential(
+            nn.Linear(n_obs_steps * state_dim, cond_dim),
+            nn.SiLU(),
+            nn.Linear(cond_dim, cond_dim),
+            nn.SiLU(),
+        )
+        self.pos_embed = nn.Parameter(torch.zeros(n_action_steps, cond_dim))
+        self.unet = UNet1D(
+            in_channels=cond_dim,
+            out_channels=action_dim,
+            base_channels=base_channels,
+            channel_mults=channel_mults,
+            kernel_size=kernel_size,
+        )
+
+    def forward(self, obs_hist):
+        # obs_hist: [B, n_obs_steps, state_dim]
+        bsz = obs_hist.shape[0]
+        cond = self.cond_proj(obs_hist.reshape(bsz, -1))
+        tokens = cond[:, None, :] + self.pos_embed[None, :, :]
+        x = tokens.permute(0, 2, 1)
+        out = self.unet(x)
+        return out.permute(0, 2, 1)

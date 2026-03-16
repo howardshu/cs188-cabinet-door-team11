@@ -103,6 +103,7 @@ class LerobotVisionChunkDataset:
         image_size,
         state_key="observation.state",
         max_episodes=70,
+        use_handle_pos=False,
     ):
         import pyarrow.parquet as pq
 
@@ -111,6 +112,7 @@ class LerobotVisionChunkDataset:
         self.n_action_steps = n_action_steps
         self.image_size = image_size
         self.state_key = state_key
+        self.use_handle_pos = use_handle_pos
         self.episodes = []
         self.sample_index = []
         self._video_cache = {}
@@ -121,7 +123,10 @@ class LerobotVisionChunkDataset:
         if not parquet_files:
             raise FileNotFoundError(f"No parquet files found in {chunk_dir}")
 
+        extras_dir = self._find_extras_dir(dataset_path)
+
         episodes_loaded = 0
+        handle_pos_missing = 0
         for pf in parquet_files:
             ep_name = os.path.splitext(pf)[0]
             df = pq.read_table(os.path.join(chunk_dir, pf)).to_pandas()
@@ -132,6 +137,19 @@ class LerobotVisionChunkDataset:
             frame_idxs = np.asarray(df["frame_index"], dtype=np.int32)
             if len(states) < (self.n_obs_steps + self.n_action_steps):
                 continue
+
+            if self.use_handle_pos and extras_dir is not None:
+                handle_path = os.path.join(extras_dir, ep_name, "handle_pos.npy")
+                if not os.path.exists(handle_path):
+                    handle_pos_missing += 1
+                    continue
+                handle_pos = np.load(handle_path).astype(np.float32)
+                if len(handle_pos) != len(states):
+                    handle_pos = handle_pos[:len(states)]
+                    if len(handle_pos) < len(states):
+                        pad = np.tile(handle_pos[-1:], (len(states) - len(handle_pos), 1))
+                        handle_pos = np.concatenate([handle_pos, pad], axis=0)
+                states = np.concatenate([states, handle_pos], axis=1)
 
             video_paths = {}
             valid = True
@@ -164,6 +182,12 @@ class LerobotVisionChunkDataset:
         if not self.episodes:
             raise RuntimeError("No valid episodes found with state/action + all cameras.")
 
+        if self.use_handle_pos and handle_pos_missing > 0:
+            print(
+                f"WARNING: {handle_pos_missing} episodes skipped (no handle_pos.npy). "
+                "Run 09_cache_handle_positions.py first."
+            )
+
         all_states = np.concatenate([ep["states"] for ep in self.episodes], axis=0)
         all_actions = np.concatenate([ep["actions"] for ep in self.episodes], axis=0)
         self.state_mean = all_states.mean(axis=0, keepdims=True).astype(np.float32)
@@ -172,6 +196,18 @@ class LerobotVisionChunkDataset:
         self.action_std = (all_actions.std(axis=0, keepdims=True) + 1e-6).astype(np.float32)
         self.state_dim = all_states.shape[-1]
         self.action_dim = all_actions.shape[-1]
+
+    @staticmethod
+    def _find_extras_dir(dataset_path):
+        """Locate the extras/ directory within the dataset."""
+        candidates = [
+            os.path.join(dataset_path, "extras"),
+            os.path.join(dataset_path, "lerobot", "extras"),
+        ]
+        for c in candidates:
+            if os.path.isdir(c):
+                return c
+        return None
 
     def __len__(self):
         return len(self.sample_index)
@@ -506,6 +542,7 @@ def train_vision_diffusion_chunk_policy(config):
     num_diffusion_steps = int(config.get("num_diffusion_steps", 100))
     num_inference_steps = int(config.get("num_inference_steps", 32))
 
+    use_handle_pos = bool(config.get("use_handle_pos", False))
     dataset = LerobotVisionChunkDataset(
         dataset_path=dataset_path,
         image_keys=image_keys,
@@ -514,6 +551,7 @@ def train_vision_diffusion_chunk_policy(config):
         image_size=image_size,
         state_key=state_key,
         max_episodes=max_episodes,
+        use_handle_pos=use_handle_pos,
     )
     val_fraction = float(config.get("val_fraction", 0.1))
     seed = int(config.get("seed", 42))
@@ -690,7 +728,15 @@ def train_vision_diffusion_chunk_policy(config):
         "robot0_gripper_qpos",
     ]
 
-    def extract_state(obs):
+    def _quat_to_rot(quat):
+        w, x, y, z = quat
+        return np.array([
+            [1 - 2*(y*y + z*z), 2*(x*y - w*z),     2*(x*z + w*y)],
+            [2*(x*y + w*z),     1 - 2*(x*x + z*z), 2*(y*z - w*x)],
+            [2*(x*z - w*y),     2*(y*z + w*x),     1 - 2*(x*x + y*y)],
+        ])
+
+    def extract_state(obs, env=None):
         parts = []
         for key in ROBOCASA_STATE_KEYS:
             if key in obs:
@@ -698,21 +744,77 @@ def train_vision_diffusion_chunk_policy(config):
         if not parts:
             return np.zeros(dataset.state_dim, dtype=np.float32)
         state = np.concatenate(parts).astype(np.float32)
+        if use_handle_pos and env is not None:
+            handle_base = _get_handle_base_pos(obs, env)
+            state = np.concatenate([state, handle_base])
         if len(state) < dataset.state_dim:
             state = np.pad(state, (0, dataset.state_dim - len(state)))
         elif len(state) > dataset.state_dim:
             state = state[: dataset.state_dim]
         return state
 
-    def remap_action_dataset_to_env(action):
+    def _get_handle_world_pos(env):
+        fxtr = env.fxtr
+        fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+        candidates = [
+            n for n in env.sim.model.site_names
+            if "handle" in n.lower() and fxtr_name in n
+        ]
+        if not candidates:
+            candidates = [n for n in env.sim.model.site_names if "handle" in n.lower()]
+        if candidates:
+            site_id = env.sim.model.site_name2id(candidates[0])
+            return env.sim.data.site_xpos[site_id].copy()
+
+        candidates = [
+            n for n in env.sim.model.geom_names
+            if "handle" in n.lower() and fxtr_name in n
+        ]
+        if not candidates:
+            candidates = [n for n in env.sim.model.geom_names if "handle" in n.lower()]
+        if candidates:
+            geom_id = env.sim.model.geom_name2id(candidates[0])
+            return env.sim.data.geom_xpos[geom_id].copy()
+        return np.zeros(3, dtype=np.float32)
+
+    def _get_handle_base_pos(obs, env):
+        handle_world = _get_handle_world_pos(env)
+        base_pos = obs["robot0_base_pos"]
+        base_quat = obs["robot0_base_quat"]
+        R = _quat_to_rot(base_quat)
+        return (R.T @ (handle_world - base_pos)).astype(np.float32)
+
+    def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0):
         env_action = np.zeros_like(action)
+        gripper = 1.0 if float(action[11]) > gripper_threshold else -1.0
+        base_mode = 1.0 if float(action[4]) > base_mode_threshold else -1.0
         env_action[0:3] = action[5:8]
         env_action[3:6] = action[8:11]
-        env_action[6] = action[3]
-        env_action[7:10] = action[0:3]
-        env_action[10] = action[11]
-        env_action[11] = action[4]
+        env_action[6] = gripper
+        env_action[7:11] = action[0:4]
+        env_action[11] = base_mode
         return env_action
+
+    def check_any_door_open(env, threshold_rad=0.3):
+        try:
+            fxtr = env.fxtr
+            fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+            joint_ids = [
+                i for i, n in enumerate(env.sim.model.joint_names)
+                if fxtr_name in n and "door" in n.lower()
+            ]
+            if joint_ids:
+                for jidx in joint_ids:
+                    addr = env.sim.model.joint(jidx).qposadr[0]
+                    qpos = env.sim.data.qpos[addr]
+                    if abs(float(qpos)) > threshold_rad:
+                        return True
+                return False
+            door_state = env.fxtr.get_door_state(env)
+            norm_thresh = threshold_rad / (np.pi / 2)
+            return any(v >= norm_thresh for v in door_state.values())
+        except Exception:
+            return env._check_success()
 
     def compute_validation_metrics():
         model.eval()
@@ -767,7 +869,7 @@ def train_vision_diffusion_chunk_policy(config):
             action_queue = []
             ok = False
             for _ in range(rollout_eval_max_steps):
-                state = extract_state(obs)
+                state = extract_state(obs, env=env)
                 state_hist.append(state.astype(np.float32))
                 if len(state_hist) > n_obs_steps:
                     state_hist.pop(0)
@@ -810,7 +912,7 @@ def train_vision_diffusion_chunk_policy(config):
                 elif len(action) > env_action_dim:
                     action = action[:env_action_dim]
                 obs, _, _, _ = env.step(action)
-                if env._check_success():
+                if check_any_door_open(env):
                     ok = True
                     break
             successes += int(ok)
@@ -948,6 +1050,7 @@ def train_vision_diffusion_chunk_policy(config):
                     "vision_feature_dim": int(config.get("vision_feature_dim", 256)),
                     "hidden_dim": int(config.get("hidden_dim", 768)),
                     "image_size": image_size,
+                    "use_handle_pos": use_handle_pos,
                     "state_mean": dataset.state_mean.astype(np.float32),
                     "state_std": dataset.state_std.astype(np.float32),
                     "action_mean": dataset.action_mean.astype(np.float32),
@@ -974,6 +1077,7 @@ def train_vision_diffusion_chunk_policy(config):
                     "vision_feature_dim": int(config.get("vision_feature_dim", 256)),
                     "hidden_dim": int(config.get("hidden_dim", 768)),
                     "image_size": image_size,
+                    "use_handle_pos": use_handle_pos,
                     "state_mean": dataset.state_mean.astype(np.float32),
                     "state_std": dataset.state_std.astype(np.float32),
                     "action_mean": dataset.action_mean.astype(np.float32),
@@ -1001,6 +1105,7 @@ def train_vision_diffusion_chunk_policy(config):
             "vision_feature_dim": int(config.get("vision_feature_dim", 256)),
             "hidden_dim": int(config.get("hidden_dim", 768)),
             "image_size": image_size,
+            "use_handle_pos": use_handle_pos,
             "state_mean": dataset.state_mean.astype(np.float32),
             "state_std": dataset.state_std.astype(np.float32),
             "action_mean": dataset.action_mean.astype(np.float32),
@@ -1357,6 +1462,11 @@ def main():
         default=None,
         help="Optional path to LeRobot OpenCabinet dataset root",
     )
+    parser.add_argument(
+        "--use_handle_pos",
+        action="store_true",
+        help="Augment state with cached handle positions (run 09_cache_handle_positions.py first)",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -1389,6 +1499,7 @@ def main():
             "checkpoint_every": args.checkpoint_every,
             "log_every_steps": args.log_every_steps,
             "dataset_path": args.dataset_path,
+            "use_handle_pos": args.use_handle_pos,
         }
         for key, value in cli_overrides.items():
             if f"--{key}" in sys.argv:
@@ -1415,6 +1526,7 @@ def main():
             "checkpoint_every": args.checkpoint_every,
             "log_every_steps": args.log_every_steps,
             "dataset_path": args.dataset_path,
+            "use_handle_pos": args.use_handle_pos,
         }
 
     policy_type = config.get("policy", "vision_diffusion_chunk")

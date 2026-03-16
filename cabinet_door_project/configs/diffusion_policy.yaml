@@ -49,6 +49,10 @@ checkpoint_dir: /tmp/cabinet_policy_checkpoints
 # set to absolute path where your LeRobot OpenCabinet dataset lives.
 dataset_path: null
 
+# Handle position augmentation: appends 3D handle position (base frame)
+# to the state vector. Run 09_cache_handle_positions.py first.
+use_handle_pos: true
+
 # Presets:
 # - few_hours (default): values in this file.
 # - high_quality: hidden_dim=768-1024, vision_feature_dim=256-384,
