@@ -175,49 +175,87 @@ def _quat_to_rot(quat):
     ])
 
 
-def _find_handle_site(env):
-    fxtr = env.fxtr
-    fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
-    candidates = [
+def _collect_handle_sites(env, fxtr_name):
+    sites = [
         n for n in env.sim.model.site_names
         if "handle" in n.lower() and fxtr_name in n
     ]
-    if not candidates:
-        candidates = [n for n in env.sim.model.site_names if "handle" in n.lower()]
-    return candidates[0] if candidates else None
+    if not sites:
+        sites = [n for n in env.sim.model.site_names if "handle" in n.lower()]
+    return sites
 
 
-def _get_handle_world_pos(env):
-    """Get the cabinet handle position in world frame (prefers sites)."""
-    site = _find_handle_site(env)
-    if site is not None:
-        site_id = env.sim.model.site_name2id(site)
-        return env.sim.data.site_xpos[site_id].copy().astype(np.float32)
+def _collect_handle_bodies(env, fxtr_name):
+    bodies = [
+        n for n in env.sim.model.body_names
+        if "handle" in n.lower() and fxtr_name in n
+    ]
+    if not bodies:
+        bodies = [n for n in env.sim.model.body_names if "handle" in n.lower()]
+    return bodies
 
+
+def _collect_handle_geoms(env):
+    return [n for n in env.sim.model.geom_names if "handle" in n.lower()]
+
+
+def _select_nearest_handle(positions, eef_world):
+    if eef_world is None or not positions:
+        return positions[0] if positions else None
+    dists = [np.linalg.norm(p - eef_world) for p in positions]
+    return positions[int(np.argmin(dists))]
+
+
+def _get_handle_world_pos(env, eef_world=None):
+    """Get the cabinet handle position in world frame (prefers sites).
+
+    Picks the handle closest to the end-effector when possible to match
+    the handle selection used during dataset augmentation.
+    """
     fxtr = env.fxtr
     fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
-    for name in env.sim.model.body_names:
-        if fxtr_name in name and "handle" in name:
-            body_id = env.sim.model.body_name2id(name)
-            return env.sim.data.body_xpos[body_id].copy().astype(np.float32)
-    for name in env.sim.model.body_names:
-        if "handle" in name.lower():
-            body_id = env.sim.model.body_name2id(name)
-            return env.sim.data.body_xpos[body_id].copy().astype(np.float32)
 
-    candidates = [n for n in env.sim.model.geom_names if "handle" in n.lower()]
-    if candidates:
-        geom_id = env.sim.model.geom_name2id(candidates[0])
-        return env.sim.data.geom_xpos[geom_id].copy().astype(np.float32)
+    sites = _collect_handle_sites(env, fxtr_name)
+    if sites:
+        positions = []
+        for name in sites:
+            site_id = env.sim.model.site_name2id(name)
+            positions.append(env.sim.data.site_xpos[site_id].copy().astype(np.float32))
+        selected = _select_nearest_handle(positions, eef_world)
+        if selected is not None:
+            return selected
+
+    bodies = _collect_handle_bodies(env, fxtr_name)
+    if bodies:
+        positions = []
+        for name in bodies:
+            body_id = env.sim.model.body_name2id(name)
+            positions.append(env.sim.data.body_xpos[body_id].copy().astype(np.float32))
+        selected = _select_nearest_handle(positions, eef_world)
+        if selected is not None:
+            return selected
+
+    geoms = _collect_handle_geoms(env)
+    if geoms:
+        positions = []
+        for name in geoms:
+            geom_id = env.sim.model.geom_name2id(name)
+            positions.append(env.sim.data.geom_xpos[geom_id].copy().astype(np.float32))
+        selected = _select_nearest_handle(positions, eef_world)
+        if selected is not None:
+            return selected
+
     return np.zeros(3, dtype=np.float32)
 
 
 def get_handle_base_pos(obs, env):
     """Get the cabinet handle position in robot base frame."""
-    handle_world = _get_handle_world_pos(env)
     base_pos = obs["robot0_base_pos"]
     base_quat = obs["robot0_base_quat"]
     R = _quat_to_rot(base_quat)
+    eef_rel = obs["robot0_base_to_eef_pos"].flatten()
+    eef_world = base_pos + R @ eef_rel
+    handle_world = _get_handle_world_pos(env, eef_world=eef_world)
     return (R.T @ (handle_world - base_pos)).astype(np.float32)
 
 
@@ -238,13 +276,12 @@ def compute_augmented_features(obs, env, augmented_keys):
     if not augmented_keys:
         return np.array([], dtype=np.float32)
 
-    handle_world = _get_handle_world_pos(env)
-
     base_pos = obs["robot0_base_pos"].flatten()
     base_quat = obs["robot0_base_quat"].flatten()
     eef_rel = obs["robot0_base_to_eef_pos"].flatten()
     R = _quat_to_rot(base_quat)
     eef_world = base_pos + R @ eef_rel
+    handle_world = _get_handle_world_pos(env, eef_world=eef_world)
 
     parts = []
     for key in augmented_keys:
@@ -286,7 +323,14 @@ def check_any_door_open(env, threshold_rad=0.3):
         return env._check_success()
 
 
-def extract_state(obs, state_dim, env=None, use_handle_pos=False, augmented_obs_keys=None):
+def extract_state(
+    obs,
+    state_dim,
+    env=None,
+    use_handle_pos=False,
+    augmented_obs_keys=None,
+    state_mask=None,
+):
     """Extract a fixed-size state vector from observations.
 
     Uses the exact key ordering from the RoboCasa LeRobot dataset's
@@ -304,6 +348,8 @@ def extract_state(obs, state_dim, env=None, use_handle_pos=False, augmented_obs_
         return np.zeros(state_dim, dtype=np.float32)
 
     state = np.concatenate(parts).astype(np.float32)
+    if state_mask is not None:
+        state = state[state_mask]
 
     if use_handle_pos and env is not None:
         handle_base = get_handle_base_pos(obs, env)
@@ -324,8 +370,8 @@ def extract_state(obs, state_dim, env=None, use_handle_pos=False, augmented_obs_
 def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0):
     """Remap a 12-dim action from dataset ordering to environment ordering.
 
-    Dataset (modality.json):  [base_motion(4), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
-    Environment (composite controller order): [eef_pos(3), eef_rot(3), gripper(1), base_motion(4), control_mode(1)]
+    Dataset (modality.json):  [base_motion(3), torso(1), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
+    Environment (composite controller order): [eef_pos(3), eef_rot(3), gripper(1), base_motion(3), torso(1), base_mode(1)]
     """
     env_action = np.zeros_like(action)
     gripper = 1.0 if float(action[11]) > gripper_threshold else -1.0
@@ -333,7 +379,8 @@ def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_thresho
     env_action[0:3] = action[5:8]    # eef_position
     env_action[3:6] = action[8:11]   # eef_rotation
     env_action[6] = gripper          # gripper_close (binarized)
-    env_action[7:11] = action[0:4]   # base_motion (fwd, side, yaw, torso)
+    env_action[7:10] = action[0:3]   # base_motion (fwd, side, yaw)
+    env_action[10] = action[3]       # torso
     env_action[11] = base_mode       # control_mode (binarized)
     return env_action
 
@@ -386,6 +433,7 @@ def run_evaluation(
     model_type = checkpoint.get("model_type", "simple_mlp")
     use_handle_pos = checkpoint.get("use_handle_pos", False)
     augmented_obs_keys = checkpoint.get("augmented_obs_keys", None)
+    state_mask = checkpoint.get("state_mask", None)
     state_mean = state_std = action_mean = action_std = None
     image_keys = checkpoint.get("image_keys", [])
     if "state_mean" in checkpoint:
@@ -442,9 +490,12 @@ def run_evaluation(
 
         for step in range(max_steps):
             state = extract_state(
-                obs, state_dim, env=env,
+                obs,
+                state_dim,
+                env=env,
                 use_handle_pos=use_handle_pos,
                 augmented_obs_keys=augmented_obs_keys,
+                state_mask=state_mask,
             )
 
             if model_type in ("vision_diffusion_chunk", "unet_lowdim_diffusion", "bc_unet_lowdim"):

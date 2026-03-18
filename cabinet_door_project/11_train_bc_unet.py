@@ -67,6 +67,7 @@ def _load_augmented_episodes(
     state_key="observation.state",
     augmented_keys=None,
     max_episodes=None,
+    state_mask=None,
 ):
     import pyarrow.parquet as pq
 
@@ -95,6 +96,8 @@ def _load_augmented_episodes(
             continue
 
         states = np.stack(df[state_key].to_list()).astype(np.float32)
+        if state_mask is not None:
+            states = states[:, state_mask]
         actions = np.stack(df["action"].to_list()).astype(np.float32)
 
         aug_parts = []
@@ -240,6 +243,12 @@ def main():
     parser.add_argument("--gripper_threshold", type=float, default=0.0)
     parser.add_argument("--base_mode_threshold", type=float, default=0.0)
     parser.add_argument(
+        "--no_drop_quaternions",
+        action="store_false",
+        dest="drop_quaternions",
+        help="Keep orientation quaternions in the state vector",
+    )
+    parser.add_argument(
         "--no_handle_pos",
         action="store_false",
         dest="use_handle_pos",
@@ -255,6 +264,7 @@ def main():
         use_handle_pos=True,
         use_handle_to_eef=True,
         binarize_actions=True,
+        drop_quaternions=True,
     )
     args = parser.parse_args()
 
@@ -291,10 +301,16 @@ def main():
         augmented_keys = []
         print("NOTE: Training without handle features (proprio only).")
 
+    state_mask = None
+    if args.drop_quaternions:
+        # Keep base_pos (0:3), eef_pos_rel (7:10), gripper_qpos (14:16)
+        state_mask = [0, 1, 2, 7, 8, 9, 14, 15]
+
     episodes, used_keys = _load_augmented_episodes(
         dataset_path=dataset_path,
         augmented_keys=augmented_keys,
         max_episodes=args.max_episodes,
+        state_mask=state_mask,
     )
     if args.binarize_actions:
         binarize_actions(
@@ -384,6 +400,8 @@ def main():
             f"  binarize_actions=True (gripper>{args.gripper_threshold}, "
             f"base_mode>{args.base_mode_threshold})"
         )
+    if args.drop_quaternions:
+        print("  drop_quaternions=True (state dims exclude base/eef quats)")
     print()
 
     best_loss = float("inf")
@@ -457,6 +475,8 @@ def main():
                 "binarize_actions": args.binarize_actions,
                 "gripper_threshold": args.gripper_threshold,
                 "base_mode_threshold": args.base_mode_threshold,
+                "drop_quaternions": args.drop_quaternions,
+                "state_mask": state_mask,
                 "state_mean": state_mean.astype(np.float32),
                 "state_std": state_std.astype(np.float32),
                 "action_mean": action_mean.astype(np.float32),
@@ -498,6 +518,8 @@ def main():
         "binarize_actions": args.binarize_actions,
         "gripper_threshold": args.gripper_threshold,
         "base_mode_threshold": args.base_mode_threshold,
+        "drop_quaternions": args.drop_quaternions,
+        "state_mask": state_mask,
         "state_mean": state_mean.astype(np.float32),
         "state_std": state_std.astype(np.float32),
         "action_mean": action_mean.astype(np.float32),

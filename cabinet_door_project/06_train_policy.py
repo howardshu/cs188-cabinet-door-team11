@@ -753,35 +753,75 @@ def train_vision_diffusion_chunk_policy(config):
             state = state[: dataset.state_dim]
         return state
 
-    def _get_handle_world_pos(env):
-        fxtr = env.fxtr
-        fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
-        candidates = [
+    def _collect_handle_sites(env, fxtr_name):
+        sites = [
             n for n in env.sim.model.site_names
             if "handle" in n.lower() and fxtr_name in n
         ]
-        if not candidates:
-            candidates = [n for n in env.sim.model.site_names if "handle" in n.lower()]
-        if candidates:
-            site_id = env.sim.model.site_name2id(candidates[0])
-            return env.sim.data.site_xpos[site_id].copy()
+        if not sites:
+            sites = [n for n in env.sim.model.site_names if "handle" in n.lower()]
+        return sites
 
-        candidates = [
-            n for n in env.sim.model.geom_names
+    def _collect_handle_bodies(env, fxtr_name):
+        bodies = [
+            n for n in env.sim.model.body_names
             if "handle" in n.lower() and fxtr_name in n
         ]
-        if not candidates:
-            candidates = [n for n in env.sim.model.geom_names if "handle" in n.lower()]
-        if candidates:
-            geom_id = env.sim.model.geom_name2id(candidates[0])
-            return env.sim.data.geom_xpos[geom_id].copy()
+        if not bodies:
+            bodies = [n for n in env.sim.model.body_names if "handle" in n.lower()]
+        return bodies
+
+    def _collect_handle_geoms(env):
+        return [n for n in env.sim.model.geom_names if "handle" in n.lower()]
+
+    def _select_nearest_handle(positions, eef_world):
+        if eef_world is None or not positions:
+            return positions[0] if positions else None
+        dists = [np.linalg.norm(p - eef_world) for p in positions]
+        return positions[int(np.argmin(dists))]
+
+    def _get_handle_world_pos(env, eef_world=None):
+        fxtr = env.fxtr
+        fxtr_name = fxtr.name if hasattr(fxtr, "name") else ""
+        sites = _collect_handle_sites(env, fxtr_name)
+        if sites:
+            positions = []
+            for name in sites:
+                site_id = env.sim.model.site_name2id(name)
+                positions.append(env.sim.data.site_xpos[site_id].copy())
+            selected = _select_nearest_handle(positions, eef_world)
+            if selected is not None:
+                return selected
+
+        bodies = _collect_handle_bodies(env, fxtr_name)
+        if bodies:
+            positions = []
+            for name in bodies:
+                body_id = env.sim.model.body_name2id(name)
+                positions.append(env.sim.data.body_xpos[body_id].copy())
+            selected = _select_nearest_handle(positions, eef_world)
+            if selected is not None:
+                return selected
+
+        geoms = _collect_handle_geoms(env)
+        if geoms:
+            positions = []
+            for name in geoms:
+                geom_id = env.sim.model.geom_name2id(name)
+                positions.append(env.sim.data.geom_xpos[geom_id].copy())
+            selected = _select_nearest_handle(positions, eef_world)
+            if selected is not None:
+                return selected
+
         return np.zeros(3, dtype=np.float32)
 
     def _get_handle_base_pos(obs, env):
-        handle_world = _get_handle_world_pos(env)
         base_pos = obs["robot0_base_pos"]
         base_quat = obs["robot0_base_quat"]
         R = _quat_to_rot(base_quat)
+        eef_rel = obs["robot0_base_to_eef_pos"].flatten()
+        eef_world = base_pos + R @ eef_rel
+        handle_world = _get_handle_world_pos(env, eef_world=eef_world)
         return (R.T @ (handle_world - base_pos)).astype(np.float32)
 
     def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0):
@@ -791,7 +831,8 @@ def train_vision_diffusion_chunk_policy(config):
         env_action[0:3] = action[5:8]
         env_action[3:6] = action[8:11]
         env_action[6] = gripper
-        env_action[7:11] = action[0:4]
+        env_action[7:10] = action[0:3]
+        env_action[10] = action[3]
         env_action[11] = base_mode
         return env_action
 
