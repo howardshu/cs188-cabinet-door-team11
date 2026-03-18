@@ -219,11 +219,13 @@ class UNet1D(nn.Module):
         super().__init__()
         self.downs = nn.ModuleList()
         self.ups = nn.ModuleList()
+        self.skip_channels = []
         ch = in_channels
 
         for mult in channel_mults:
             out_ch = base_channels * mult
             self.downs.append(ConvBlock1D(ch, out_ch, kernel_size=kernel_size))
+            self.skip_channels.append(out_ch)
             self.downs.append(
                 nn.Conv1d(out_ch, out_ch, kernel_size=4, stride=2, padding=1)
             )
@@ -233,10 +235,11 @@ class UNet1D(nn.Module):
 
         for mult in reversed(channel_mults):
             out_ch = base_channels * mult
+            skip_ch = self.skip_channels.pop() if self.skip_channels else out_ch
             self.ups.append(
                 nn.ConvTranspose1d(ch, out_ch, kernel_size=4, stride=2, padding=1)
             )
-            self.ups.append(ConvBlock1D(ch + out_ch, out_ch, kernel_size=kernel_size))
+            self.ups.append(ConvBlock1D(out_ch + skip_ch, out_ch, kernel_size=kernel_size))
             ch = out_ch
 
         self.final = nn.Conv1d(ch, out_channels, kernel_size=1)

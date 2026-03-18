@@ -275,6 +275,11 @@ the steps-per-epoch cap (`max_train_steps_per_epoch: null`).
 python 07_evaluate_policy.py --checkpoint /tmp/cabinet_policy_checkpoints/best_policy.pt
 ```
 
+If you run into an error with `robocasa` not found, you may have to set `PYTHONPATH`:
+```bash
+export PYTHONPATH="$PWD/robocasa:$PWD/robosuite:$PYTHONPATH"
+```
+
 Runs your trained policy in simulation and reports success rate across episodes
 and scene splits (`pretrain` / `target`). The evaluator auto-detects whether
 the checkpoint is from the simple MLP, low-dim diffusion, or vision-chunk

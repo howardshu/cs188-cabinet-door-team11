@@ -127,6 +127,16 @@ def _load_augmented_episodes(
     return episodes, augmented_keys
 
 
+def binarize_actions(episodes, gripper_threshold=0.0, base_mode_threshold=0.0):
+    """Binarize gripper and control_mode action dims in-place."""
+    for ep in episodes:
+        actions = ep["actions"]
+        if actions.shape[-1] < 12:
+            continue
+        actions[:, 11] = np.where(actions[:, 11] > gripper_threshold, 1.0, -1.0)
+        actions[:, 4] = np.where(actions[:, 4] > base_mode_threshold, 1.0, -1.0)
+
+
 class SequenceDataset:
     def __init__(self, episodes, episode_indices, n_obs_steps, n_action_steps):
         self.episodes = episodes
@@ -214,13 +224,21 @@ def main():
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--cond_dim", type=int, default=256)
     parser.add_argument("--max_episodes", type=int, default=None)
-    parser.add_argument("--checkpoint_dir", type=str, default="/tmp/bc_unet_checkpoints")
+    parser.add_argument("--checkpoint_dir", type=str, default="bc_unet_checkpoints/")
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--val_fraction", type=float, default=0.15)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--patience", type=int, default=25)
     parser.add_argument("--min_epochs", type=int, default=2)
+    parser.add_argument(
+        "--no_binarize_actions",
+        action="store_false",
+        dest="binarize_actions",
+        help="Disable binarizing gripper/control_mode actions",
+    )
+    parser.add_argument("--gripper_threshold", type=float, default=0.0)
+    parser.add_argument("--base_mode_threshold", type=float, default=0.0)
     parser.add_argument(
         "--no_handle_pos",
         action="store_false",
@@ -233,7 +251,11 @@ def main():
         dest="use_handle_to_eef",
         help="Disable handle_to_eef feature",
     )
-    parser.set_defaults(use_handle_pos=True, use_handle_to_eef=True)
+    parser.set_defaults(
+        use_handle_pos=True,
+        use_handle_to_eef=True,
+        binarize_actions=True,
+    )
     args = parser.parse_args()
 
     try:
@@ -274,6 +296,12 @@ def main():
         augmented_keys=augmented_keys,
         max_episodes=args.max_episodes,
     )
+    if args.binarize_actions:
+        binarize_actions(
+            episodes,
+            gripper_threshold=args.gripper_threshold,
+            base_mode_threshold=args.base_mode_threshold,
+        )
 
     rng = np.random.default_rng(args.seed)
     ep_indices = np.arange(len(episodes))
@@ -351,6 +379,11 @@ def main():
     print(f"  train episodes={len(train_indices)}, val episodes={len(val_indices)}")
     print(f"  train samples={len(train_dataset)}, val samples={len(val_dataset)}")
     print(f"  augmented keys: {used_keys}")
+    if args.binarize_actions:
+        print(
+            f"  binarize_actions=True (gripper>{args.gripper_threshold}, "
+            f"base_mode>{args.base_mode_threshold})"
+        )
     print()
 
     best_loss = float("inf")
@@ -421,6 +454,9 @@ def main():
                 "kernel_size": args.kernel_size,
                 "cond_dim": args.cond_dim,
                 "augmented_obs_keys": used_keys,
+                "binarize_actions": args.binarize_actions,
+                "gripper_threshold": args.gripper_threshold,
+                "base_mode_threshold": args.base_mode_threshold,
                 "state_mean": state_mean.astype(np.float32),
                 "state_std": state_std.astype(np.float32),
                 "action_mean": action_mean.astype(np.float32),
@@ -459,6 +495,9 @@ def main():
         "kernel_size": args.kernel_size,
         "cond_dim": args.cond_dim,
         "augmented_obs_keys": used_keys,
+        "binarize_actions": args.binarize_actions,
+        "gripper_threshold": args.gripper_threshold,
+        "base_mode_threshold": args.base_mode_threshold,
         "state_mean": state_mean.astype(np.float32),
         "state_std": state_std.astype(np.float32),
         "action_mean": action_mean.astype(np.float32),
