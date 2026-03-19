@@ -23,7 +23,49 @@ num_inference_steps: 16
 # Optimization / runtime
 epochs: 40
 batch_size: 16
+# Training configuration for a few-hours starter diffusion run.
+
+# Policy options
+policy: vision_diffusion_chunk
+image_keys:
+  - robot0_agentview_left
+  - robot0_agentview_right
+  - robot0_eye_in_hand
+state_key: observation.state
+image_size: 64
+vision_feature_dim: 128
+hidden_dim: 512
+
+# Temporal settings
+horizon: 10
+n_obs_steps: 2
+n_action_steps: 8
+
+# Diffusion settings
+num_diffusion_steps: 100
+num_inference_steps: 16
+
+# Optimization / runtime
+epochs: 40
+batch_size: 16
 learning_rate: 0.0001
+weight_decay: 1.0e-6
+lr_warmup_steps: 500
+log_every_steps: 50
+max_train_steps_per_epoch: 200
+num_workers: 2
+max_episodes: 70
+checkpoint_every: 10
+seed: 42
+val_fraction: 0.1
+val_batch_size: 16
+eval_every_epochs: 10
+val_max_batches: 10
+rollout_eval_every_epochs: 40
+rollout_eval_rollouts: 2
+rollout_eval_max_steps: 300
+rollout_inference_steps_list: [16, 32]
+enable_rollout_eval: false
 weight_decay: 1.0e-6
 lr_warmup_steps: 500
 log_every_steps: 50

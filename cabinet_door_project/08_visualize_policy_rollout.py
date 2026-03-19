@@ -28,6 +28,7 @@ Usage:
 import os
 import sys
 from pathlib import Path
+from pathlib import Path
 
 # ── Rendering mode detection ────────────────────────────────────────────────
 # We peek at sys.argv *before* argparse so we can configure the GL backend
@@ -159,6 +160,15 @@ def load_policy(checkpoint_path, device):
     model.load_state_dict(ckpt["model_state_dict"])
     model.eval()
     return model, state_dim, action_dim, ckpt
+
+
+ROBOCASA_STATE_KEYS = [
+    "robot0_base_pos",
+    "robot0_base_quat",
+    "robot0_base_to_eef_pos",
+    "robot0_base_to_eef_quat",
+    "robot0_gripper_qpos",
+]
 
 
 ROBOCASA_STATE_KEYS = [
@@ -357,8 +367,13 @@ def extract_state(
         if key in obs:
             parts.append(obs[key].flatten())
 
+    for key in ROBOCASA_STATE_KEYS:
+        if key in obs:
+            parts.append(obs[key].flatten())
+
     if not parts:
         return np.zeros(state_dim, dtype=np.float32)
+
 
     state = np.concatenate(parts).astype(np.float32)
     if state_mask is not None:
@@ -376,6 +391,7 @@ def extract_state(
         state = np.pad(state, (0, state_dim - len(state)))
     elif len(state) > state_dim:
         state = state[:state_dim]
+
 
     return state
 
@@ -1005,7 +1021,14 @@ def main():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
+    if torch.cuda.is_available():
+        device = torch.device("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = torch.device("mps")
+    else:
+        device = torch.device("cpu")
     model, state_dim, action_dim, ckpt = load_policy(args.checkpoint, device)
+    args.ckpt = ckpt
     args.ckpt = ckpt
 
     print(f"Checkpoint: {args.checkpoint}")
