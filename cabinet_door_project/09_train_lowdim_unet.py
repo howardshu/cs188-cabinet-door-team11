@@ -228,7 +228,7 @@ def main():
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--lr_warmup_steps", type=int, default=500)
     parser.add_argument("--max_episodes", type=int, default=None)
-    parser.add_argument("--checkpoint_dir", type=str, default="lowdim_unet_policy_checkpoints/")
+    parser.add_argument("--checkpoint_dir", type=str, default="/tmp/unet_policy_checkpoints")
     parser.add_argument("--checkpoint_every", type=int, default=20)
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--seed", type=int, default=42)
@@ -262,7 +262,7 @@ def main():
     dataset_path = get_dataset_path(args.dataset_path)
     print(f"Dataset: {dataset_path}")
 
-    down_dims = [int(x) for x in args.down_dims.split(",")] 
+    down_dims = [int(x) for x in args.down_dims.split(",")]
 
     dataset = AugmentedLowDimDataset(
         dataset_path=dataset_path,
