@@ -26,7 +26,6 @@ import os
 import sys
 import time
 from pathlib import Path
-from pathlib import Path
 
 # Force osmesa (CPU offscreen renderer) on Linux/WSL2 -- EGL requires
 # /dev/dri device access that is unavailable in WSL environments.
@@ -69,7 +68,6 @@ def print_section(title):
     print(f"{'=' * 60}")
 
 
-def load_policy(checkpoint_path, device, forced_model_type="auto"):
 def load_policy(checkpoint_path, device, forced_model_type="auto"):
     """Load a trained policy checkpoint."""
     import torch
@@ -150,10 +148,6 @@ def load_policy(checkpoint_path, device, forced_model_type="auto"):
 
     print(f"Loaded policy from: {checkpoint_path}")
     print(f"  Trained for {checkpoint['epoch']} epochs, loss={checkpoint['loss']:.6f}")
-    print(
-        f"  State dim: {state_dim}, Action dim: {action_dim}, "
-        f"Type: {model_type} (ckpt: {ckpt_model_type})"
-    )
     print(
         f"  State dim: {state_dim}, Action dim: {action_dim}, "
         f"Type: {model_type} (ckpt: {ckpt_model_type})"
@@ -419,7 +413,6 @@ def run_evaluation(
     model,
     state_dim,
     action_dim,
-    checkpoint,
     checkpoint,
     num_rollouts,
     max_steps,
@@ -751,18 +744,9 @@ def main():
         device = torch.device("mps")
     else:
         device = torch.device("cpu")
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
     print(f"Device: {device}")
 
     # Load the trained policy
-    model, state_dim, action_dim, checkpoint = load_policy(
-        args.checkpoint, device, forced_model_type=args.model_type
-    )
     model, state_dim, action_dim, checkpoint = load_policy(
         args.checkpoint, device, forced_model_type=args.model_type
     )
@@ -775,7 +759,6 @@ def main():
         model=model,
         state_dim=state_dim,
         action_dim=action_dim,
-        checkpoint=checkpoint,
         checkpoint=checkpoint,
         num_rollouts=args.num_rollouts,
         max_steps=args.max_steps,
