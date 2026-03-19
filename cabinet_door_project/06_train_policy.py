@@ -4,9 +4,6 @@ Step 6: Train a Diffusion Policy
 This script provides self-contained policy training for OpenCabinet.
 It now includes a low-dimensional diffusion policy baseline that does
 not depend on the external Hydra-based diffusion_policy repo.
-This script provides self-contained policy training for OpenCabinet.
-It now includes a low-dimensional diffusion policy baseline that does
-not depend on the external Hydra-based diffusion_policy repo.
 
 For production-quality training, use the official Diffusion Policy repo:
     git clone https://github.com/robocasa-benchmark/diffusion_policy
@@ -15,38 +12,21 @@ For production-quality training, use the official Diffusion Policy repo:
 
 By default this script trains the diffusion baseline. A simple MLP BC
 baseline remains available for comparison.
-By default this script trains the diffusion baseline. A simple MLP BC
-baseline remains available for comparison.
 
 Usage:
     python 06_train_policy.py [--epochs 50] [--batch_size 32] [--lr 1e-4]
-    python 06_train_policy.py --policy simple
-    python 06_train_policy.py --policy diffusion
     python 06_train_policy.py --policy simple
     python 06_train_policy.py --policy diffusion
 """
 
 import argparse
 import csv
-import csv
 import os
 import sys
 import yaml
 from pathlib import Path
-from pathlib import Path
 
 import numpy as np
-from policy_models import DiffusionActionMLP, SimplePolicy, VisionDiffusionChunkPolicy
-
-
-def ensure_local_dependency_paths():
-    repo_root = Path(__file__).resolve().parents[1]
-    for dep in ("robocasa", "robosuite"):
-        dep_path = repo_root / dep
-        if dep_path.exists():
-            dep_str = str(dep_path)
-            if dep_str not in sys.path:
-                sys.path.insert(0, dep_str)
 from policy_models import DiffusionActionMLP, SimplePolicy, VisionDiffusionChunkPolicy
 
 
@@ -73,14 +53,7 @@ def load_config(config_path):
 
 
 def get_dataset_path(dataset_path_override=None):
-def get_dataset_path(dataset_path_override=None):
     """Get the path to the OpenCabinet dataset."""
-    if dataset_path_override:
-        if os.path.exists(dataset_path_override):
-            return dataset_path_override
-        print(f"ERROR: dataset_path does not exist: {dataset_path_override}")
-        sys.exit(1)
-    ensure_local_dependency_paths()
     if dataset_path_override:
         if os.path.exists(dataset_path_override):
             return dataset_path_override
@@ -312,7 +285,6 @@ def train_simple_policy(config):
     print_section("Simple Behavior Cloning Policy")
 
     dataset_path = get_dataset_path(config.get("dataset_path", None))
-    dataset_path = get_dataset_path(config.get("dataset_path", None))
     print(f"Dataset: {dataset_path}")
 
     # ----------------------------------------------------------------
@@ -507,7 +479,6 @@ def train_simple_policy(config):
                     "state_dim": state_dim,
                     "action_dim": action_dim,
                     "model_type": "simple_mlp",
-                    "model_type": "simple_mlp",
                 },
                 ckpt_path,
             )
@@ -522,7 +493,6 @@ def train_simple_policy(config):
             "loss": avg_loss,
             "state_dim": state_dim,
             "action_dim": action_dim,
-            "model_type": "simple_mlp",
             "model_type": "simple_mlp",
         },
         final_path,
@@ -1459,69 +1429,9 @@ def main():
         choices=["vision_diffusion_chunk", "diffusion", "simple"],
         help="Policy type to train",
     )
-    parser.add_argument(
-        "--policy",
-        type=str,
-        default="vision_diffusion_chunk",
-        choices=["vision_diffusion_chunk", "diffusion", "simple"],
-        help="Policy type to train",
-    )
     parser.add_argument("--epochs", type=int, default=50, help="Training epochs")
     parser.add_argument("--batch_size", type=int, default=32, help="Batch size")
     parser.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
-    parser.add_argument(
-        "--hidden_dim",
-        type=int,
-        default=512,
-        help="Hidden dim for diffusion MLP",
-    )
-    parser.add_argument(
-        "--num_diffusion_steps",
-        type=int,
-        default=100,
-        help="DDPM training steps",
-    )
-    parser.add_argument(
-        "--num_inference_steps",
-        type=int,
-        default=32,
-        help="DDPM sampling steps at evaluation",
-    )
-    parser.add_argument("--horizon", type=int, default=10, help="Sequence horizon")
-    parser.add_argument(
-        "--n_obs_steps", type=int, default=2, help="Observation history steps"
-    )
-    parser.add_argument(
-        "--n_action_steps", type=int, default=8, help="Predicted action chunk length"
-    )
-    parser.add_argument(
-        "--vision_feature_dim", type=int, default=256, help="Per-image feature size"
-    )
-    parser.add_argument("--image_size", type=int, default=96, help="Training image size")
-    parser.add_argument(
-        "--num_workers", type=int, default=2, help="Data loader workers"
-    )
-    parser.add_argument(
-        "--weight_decay", type=float, default=1e-6, help="AdamW weight decay"
-    )
-    parser.add_argument(
-        "--lr_warmup_steps", type=int, default=500, help="Linear warmup steps"
-    )
-    parser.add_argument(
-        "--checkpoint_every", type=int, default=10, help="Save every N epochs"
-    )
-    parser.add_argument(
-        "--max_episodes",
-        type=int,
-        default=50,
-        help="Max parquet episodes to load (None loads all)",
-    )
-    parser.add_argument(
-        "--log_every_steps", 
-        type=int, 
-        default=50, 
-        help="Log every N steps"
-    )
     parser.add_argument(
         "--hidden_dim",
         type=int,
@@ -1637,7 +1547,6 @@ def main():
                 config[key] = value
     else:
         config = {
-            "policy": args.policy,
             "policy": args.policy,
             "epochs": args.epochs,
             "batch_size": args.batch_size,
