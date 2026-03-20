@@ -276,11 +276,18 @@ def compute_augmented_features(obs, env, augmented_keys):
     if not augmented_keys:
         return np.array([], dtype=np.float32)
 
-    base_pos = obs["robot0_base_pos"].flatten()
-    base_quat = obs["robot0_base_quat"].flatten()
-    eef_rel = obs["robot0_base_to_eef_pos"].flatten()
-    R = _quat_to_rot(base_quat)
-    eef_world = base_pos + R @ eef_rel
+    # Use native eef_pos which is already in world frame, avoiding quaternion mismatch bugs.
+    if "robot0_eef_pos" in obs:
+        eef_world = obs["robot0_eef_pos"].flatten()
+    else:
+        # Fallback if missing for some reason
+        base_pos = obs["robot0_base_pos"].flatten()
+        base_quat = obs["robot0_base_quat"].flatten()
+        eef_rel = obs["robot0_base_to_eef_pos"].flatten()
+        from robosuite.utils.transform_utils import quat2mat
+        R = quat2mat(base_quat)
+        eef_world = base_pos + R @ eef_rel
+
     handle_world = _get_handle_world_pos(env, eef_world=eef_world)
 
     parts = []
@@ -367,15 +374,19 @@ def extract_state(
     return state
 
 
-def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0):
+def remap_action_dataset_to_env(action, gripper_threshold=0.0, base_mode_threshold=0.0, already_binarized=False):
     """Remap a 12-dim action from dataset ordering to environment ordering.
 
     Dataset (modality.json):  [base_motion(3), torso(1), control_mode(1), eef_pos(3), eef_rot(3), gripper(1)]
     Environment (composite controller order): [eef_pos(3), eef_rot(3), gripper(1), base_motion(3), torso(1), base_mode(1)]
     """
     env_action = np.zeros_like(action)
-    gripper = 1.0 if float(action[11]) > gripper_threshold else -1.0
-    base_mode = 1.0 if float(action[4]) > base_mode_threshold else -1.0
+    if already_binarized:
+        gripper = 1.0 if float(action[11]) > 0.0 else -1.0
+        base_mode = 1.0 if float(action[4]) > 0.0 else -1.0
+    else:
+        gripper = 1.0 if float(action[11]) > gripper_threshold else -1.0
+        base_mode = 1.0 if float(action[4]) > base_mode_threshold else -1.0
     env_action[0:3] = action[5:8]    # eef_position
     env_action[3:6] = action[8:11]   # eef_rotation
     env_action[6] = gripper          # gripper_close (binarized)
@@ -424,6 +435,7 @@ def run_evaluation(
     gripper_threshold=0.0,
     base_mode_threshold=0.0,
     success_threshold_rad=0.3,
+    already_binarized=False,
 ):
     """Run evaluation rollouts and collect statistics."""
     import torch
@@ -605,6 +617,7 @@ def run_evaluation(
                 action,
                 gripper_threshold=gripper_threshold,
                 base_mode_threshold=base_mode_threshold,
+                already_binarized=already_binarized,
             )
 
             # Pad action to match environment action dim if needed
@@ -754,6 +767,14 @@ def main():
     # Run evaluation
     print_section(f"Evaluating on {args.split} split ({args.num_rollouts} episodes)")
 
+    # Detect if the checkpoint was trained with pre-binarized actions to
+    # avoid double-binarization during eval.
+    # Older BC checkpoints might not have the flag saved, but they were all binarized.
+    default_binarized = (checkpoint.get("model_type") == "bc_unet_lowdim")
+    already_binarized = checkpoint.get("binarize_actions", default_binarized)
+    if already_binarized:
+        print("  NOTE: Checkpoint was trained with binarized actions; "
+              "skipping re-binarization during eval.")
     use_relaxed_success = not args.strict_success
     results = run_evaluation(
         model=model,
@@ -770,6 +791,7 @@ def main():
         gripper_threshold=args.gripper_threshold,
         base_mode_threshold=args.base_mode_threshold,
         success_threshold_rad=args.success_threshold_rad,
+        already_binarized=already_binarized,
     )
 
     # Print summary

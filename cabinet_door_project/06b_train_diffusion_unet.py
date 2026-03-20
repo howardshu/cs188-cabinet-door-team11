@@ -14,9 +14,9 @@ Prerequisite:
     python 05b_augment_handle_data.py   # creates augmented/ parquet data
 
 Usage:
-    python 06b_train_lowdim_unet.py
-    python 06b_train_lowdim_unet.py --epochs 200 --batch_size 256
-    python 06b_train_lowdim_unet.py --checkpoint_dir /tmp/unet_checkpoints
+    python 06b_train_diffusion_unet.py
+    python 06b_train_diffusion_unet.py --epochs 200 --batch_size 256
+    python 06b_train_diffusion_unet.py --checkpoint_dir /tmp/unet_checkpoints
 """
 
 import argparse
@@ -228,7 +228,7 @@ def main():
     parser.add_argument("--kernel_size", type=int, default=5)
     parser.add_argument("--lr_warmup_steps", type=int, default=500)
     parser.add_argument("--max_episodes", type=int, default=None)
-    parser.add_argument("--checkpoint_dir", type=str, default="lowdim_unet_policy_checkpoints/")
+    parser.add_argument("--checkpoint_dir", type=str, default="diffusion_unet_policy_checkpoints/")
     parser.add_argument("--checkpoint_every", type=int, default=20)
     parser.add_argument("--dataset_path", type=str, default=None)
     parser.add_argument("--seed", type=int, default=42)

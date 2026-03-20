@@ -17,7 +17,7 @@ Usage:
     python 05b_augment_handle_data.py
 
     # Then train with augmented data (auto-detected):
-    python 09_train_lowdim_unet.py
+    python 09_train_diffusion_unet.py
 """
 
 import collections

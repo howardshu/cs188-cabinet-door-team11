@@ -114,7 +114,7 @@ cabinet_door_project/
   05_playback_demonstrations.py  # Play back demonstrations to see expert behavior
   05b_augment_handle_data.py     # Augment dataset with handle features (recommended)
   06_train_policy.py             # Train simple MLP or diffusion policy (default)
-  06b_train_lowdim_unet.py       # Train a 1D U-Net policy with ~15M params
+  06b_train_diffusion_unet.py    # Train a 1D U-Net policy with ~15M params
   06c_train_bc_unet.py           # Train BC 1D U-Net policy
   07_evaluate_policy.py          # Evaluate checkpoints
   08_visualize_policy_rollout.py # Visualize rollouts
