@@ -1,13 +1,13 @@
 """
-Step 12: Run Ablations for OpenCabinet
+Step 9: Run Ablations for OpenCabinet
 ======================================
-Runs a small suite of ablations around the recommended BC U-Net setup.
+Runs a small suite of ablations around the U-Net models.
 This script orchestrates training + evaluation and logs results to CSV.
 
 Usage:
-    python 12_run_ablations.py --output_root /tmp/cabinet_ablations --dry_run
-    python 12_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
-    python 12_run_ablations.py --output_root /tmp/cabinet_ablations --suite full
+    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --dry_run
+    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
+    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite full
 """
 
 import argparse

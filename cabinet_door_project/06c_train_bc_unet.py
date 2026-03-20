@@ -1,5 +1,5 @@
 """
-Step 11: Train a Low-Dim BC Policy with 1D U-Net
+Step 6c: Train a Low-Dim BC Policy with 1D U-Net
 =================================================
 Trains a behavior cloning policy that predicts action chunks from
 low-dimensional state + handle features. This is the recommended
@@ -9,9 +9,9 @@ Prerequisites:
     python 05b_augment_handle_data.py   # creates augmented/ parquet data
 
 Usage:
-    python 11_train_bc_unet.py
-    python 11_train_bc_unet.py --epochs 100 --batch_size 128
-    python 11_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
+    python 06c_train_bc_unet.py
+    python 06c_train_bc_unet.py --epochs 100 --batch_size 128
+    python 06c_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
 """
 
 import argparse

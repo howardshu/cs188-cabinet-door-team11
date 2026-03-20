@@ -18,3 +18,13 @@ MUJOCO_LOG.TXT
 
 # Lock files
 uv.lock
+
+# logs and checkpoints
+lowdim_unet*
+bc_unet*
+logs
+vision-diffusion*
+simple-mlp*
+
+cabinet_door_project/notebook.ipynb
+WORKING_SETUP.md

@@ -112,12 +112,13 @@ cabinet_door_project/
   03_teleop_collect_demos.py     # Teleoperate the robot to collect your own demonstrations
   04_download_dataset.py         # Download the pre-collected OpenCabinet dataset
   05_playback_demonstrations.py  # Play back demonstrations to see expert behavior
-  06_train_policy.py             # Train simple MLP or diffusion policy (default)
-  07_evaluate_policy.py          # Evaluate checkpoints (simple or diffusion)
-  08_visualize_policy_rollout.py # Visualize rollouts (simple or diffusion)
   05b_augment_handle_data.py     # Augment dataset with handle features (recommended)
-  11_train_bc_unet.py            # Train BC 1D U-Net policy (recommended)
-  12_run_ablations.py            # Run ablation suites (BC U-Net)
+  06_train_policy.py             # Train simple MLP or diffusion policy (default)
+  06b_train_lowdim_unet.py       # Train a 1D U-Net policy with ~15M params
+  06c_train_bc_unet.py           # Train BC 1D U-Net policy
+  07_evaluate_policy.py          # Evaluate checkpoints
+  08_visualize_policy_rollout.py # Visualize rollouts
+  09_run_ablations.py            # Run ablation suites (U-Net models)
   policy_models.py               # Shared model definitions used by train/eval
   configs/
     diffusion_policy.yaml        # Starter diffusion hyperparameters
@@ -228,7 +229,7 @@ low-dim behavior cloning with handle features and action chunking:
 python 05b_augment_handle_data.py
 
 # 2) Train BC 1D U-Net (defaults: handle_pos + handle_to_eef, H=16, execute=8)
-python 11_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
+python 06c_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
 
 # 3) Evaluate (relaxed success is default)
 python 07_evaluate_policy.py \
@@ -240,7 +241,7 @@ python 07_evaluate_policy.py \
 To run ablations for your report:
 
 ```bash
-python 12_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
+python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
 ```
 
 You can still run the simple MLP baseline for comparison:

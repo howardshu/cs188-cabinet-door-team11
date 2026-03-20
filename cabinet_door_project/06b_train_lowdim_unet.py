@@ -1,5 +1,5 @@
 """
-Step 9: Train a Low-Dim Diffusion Policy with 1D U-Net
+Step 6b: Train a Low-Dim Diffusion Policy with 1D U-Net
 =======================================================
 Trains a state-based (no images) diffusion policy using the
 ConditionalUnet1D architecture from the diffusion_policy repo.
@@ -14,9 +14,9 @@ Prerequisite:
     python 05b_augment_handle_data.py   # creates augmented/ parquet data
 
 Usage:
-    python 09_train_lowdim_unet.py
-    python 09_train_lowdim_unet.py --epochs 200 --batch_size 256
-    python 09_train_lowdim_unet.py --checkpoint_dir /tmp/unet_checkpoints
+    python 06b_train_lowdim_unet.py
+    python 06b_train_lowdim_unet.py --epochs 200 --batch_size 256
+    python 06b_train_lowdim_unet.py --checkpoint_dir /tmp/unet_checkpoints
 """
 
 import argparse
