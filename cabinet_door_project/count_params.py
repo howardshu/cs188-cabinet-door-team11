@@ -1,4 +1,13 @@
+"""
+Utility to report parameter counts for PyTorch checkpoints or raw state dicts.
+
+Usage:
+    python count_params.py path/to/best_policy.pt
+"""
+
+import argparse
 import torch
+
 
 def count_parameters_in_pt(file_path):
     print(f"Loading '{file_path}'...")
@@ -40,13 +49,10 @@ def count_parameters_in_pt(file_path):
         print(f"An error occurred: {e}")
         return None
 
-# --- How to use it ---
 if __name__ == "__main__":
-    # Replace with the path to your actual .pt or .pth file
-    file_name = "simple-mlp-trained2/best_policy.pt" 
-    
-    params = count_parameters_in_pt(file_name)
-    
+    p = argparse.ArgumentParser(description="Count parameters in a PyTorch checkpoint.")
+    p.add_argument("checkpoint", type=str, help="Path to .pt / .pth file")
+    args = p.parse_args()
+    params = count_parameters_in_pt(args.checkpoint)
     if params is not None:
-        # Prints the number with comma separators for readability
         print(f"\nTotal parameters: {params:,}")

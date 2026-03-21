@@ -1,3 +1,12 @@
+"""
+Neural policy modules shared by training and evaluation scripts.
+
+Includes: MLP BC, low-dimensional diffusion denoiser, 1D U-Net BC
+(:class:`BCUnet1DPolicy`), vision + diffusion chunk policy, and small image
+encoders. Checkpoints store ``model_type`` and shapes so ``07_evaluate_policy``
+can load the right architecture.
+"""
+
 from typing import Dict, List
 
 import torch

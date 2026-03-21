@@ -2,22 +2,33 @@
 
 ## Overview
 
-In this project, we build a robot that learns to open kitchen cabinet doors
+In this project, we built infrastructure for a robot to learn to open kitchen cabinet doors
 using **RoboCasa365**, a large-scale simulation benchmark for everyday robot
-tasks. We progress from understanding the simulation environment, to
+tasks. We progressed from understanding the simulation environment, to
 collecting demonstrations, to training a neural-network policy that controls the robot autonomously.
 
-This fork includes a **native diffusion-policy baseline** directly in
-`cabinet_door_project/06_train_policy.py` (no external Hydra training repo
-required for core training / eval / visualization).
+This repository still includes the **simple MLP** and **low-dim / vision diffusion**
+baselines in `cabinet_door_project/06_train_policy.py`. For the OpenCabinet demo
+scale, the team’s stronger **state + handle-feature** policies live in
+`06c_train_bc_unet.py` (compact U-Net), `06d_train_highdim_bc_unet.py` (wider
+U-Net), and `06b_train_diffusion_unet.py` (diffusion U-Net).
 
-### Learned
+### Where to run commands
 
-1. How robotic manipulation environments are structured (MuJoCo + robosuite + RoboCasa)
-2. How the `OpenCabinet` task works -- sensors, actions, success criteria
-3. How to collect and use demonstration datasets (human + MimicGen)
-4. How to train a behavior-cloning policy from demonstrations
-5. How to evaluate your trained policy in simulation
+- **Steps 0–8** (`00_*.py` … `08_*.py`): run from `cabinet_door_project/` with the
+  venv activated (`source ../.venv/bin/activate` from that folder, or activate
+  then `cd cabinet_door_project`).
+- **`09_run_ablations.py`**: run from the **repository root** (paths inside the
+  script are `cabinet_door_project/...`).
+- **Colab**: use the paths shown in the Colab section (typically repo root as cwd).
+
+### Overview of Codebase Goals
+
+1. Demonstrate how robotic manipulation environments are structured (MuJoCo + robosuite + RoboCasa)
+2. Demonstrate how the `OpenCabinet` task works -- sensors, actions, success criteria
+3. Show how to collect and use demonstration datasets (human + MimicGen)
+4. Train a behavior-cloning policy from demonstrations
+5. Evaluate your trained policy in simulation
 
 ### The robot
 
@@ -57,44 +68,6 @@ python 00_verify_installation.py
 > **macOS note:** Scripts that open a rendering window (03, 05) require
 > `mjpython` instead of `python`. The install script will remind you of this.
 
-### Google Colab (Training)
-
-Use this copy-paste sequence in a fresh Colab GPU notebook:
-
-```python
-# Cell 1: clone repo and enter it
-!git clone <YOUR_REPO_URL>
-%cd cs188-cabinet-door-team11
-```
-
-```python
-# Cell 2: install Colab dependencies
-!bash cabinet_door_project/colab_setup.sh
-```
-
-```python
-# Cell 3 (optional): mount Drive for dataset + checkpoints
-from google.colab import drive
-drive.mount('/content/drive')
-```
-
-```python
-# Cell 4: train (set paths for your Drive layout)
-DATASET_PATH = "/content/drive/MyDrive/OpenCabinet/lerobot"
-CKPT_DIR = "/content/drive/MyDrive/cabinet_policy_checkpoints"
-
-!python cabinet_door_project/06_train_policy.py \
-  --policy vision_diffusion_chunk \
-  --config cabinet_door_project/configs/diffusion_policy.yaml \
-  --dataset_path "$DATASET_PATH" \
-  --checkpoint_dir "$CKPT_DIR"
-```
-
-Notes:
-- `DATASET_PATH` must point to a LeRobot dataset root containing `data/` and `videos/`.
-- If your repo already lives on Drive, skip `git clone` and `%cd` into that folder instead.
-- On Colab, prefer offscreen evaluation/visualization (no on-screen viewer).
-
 ---
 
 ## Project Structure
@@ -107,20 +80,36 @@ cabinet_door_project/
   03_teleop_collect_demos.py     # Teleoperate the robot to collect your own demonstrations
   04_download_dataset.py         # Download the pre-collected OpenCabinet dataset
   05_playback_demonstrations.py  # Play back demonstrations to see expert behavior
-  05b_augment_handle_data.py     # Augment dataset with handle features (recommended)
-  06_train_policy.py             # Train simple MLP or diffusion policy (default)
-  06b_train_diffusion_unet.py    # Train a 1D U-Net policy with ~15M params
-  06c_train_bc_unet.py           # Train BC 1D U-Net policy
-  07_evaluate_policy.py          # Evaluate checkpoints
+  05b_augment_handle_data.py     # Augment dataset with handle features (recommended before 06b–06d)
+  06_train_policy.py             # Train vision-diffusion-chunk (default), low-dim diffusion, or simple MLP
+  06b_train_diffusion_unet.py    # State + handle features: Diffusion + 1D U-Net (~15M params)
+  06c_train_bc_unet.py           # State + handle features: BC 1D U-Net (compact, fast)
+  06d_train_highdim_bc_unet.py   # State + handle features: wider BC 1D U-Net
+  07_evaluate_policy.py          # Evaluate checkpoints (auto-detects model type)
   08_visualize_policy_rollout.py # Visualize rollouts
-  09_run_ablations.py            # Run ablation suites (U-Net models)
+  09_run_ablations.py            # Ablation suite (06c BC U-Net); run from repo root
   policy_models.py               # Shared model definitions used by train/eval
+  colab_setup.sh               # Colab dependency install
   configs/
-    diffusion_policy.yaml        # Starter diffusion hyperparameters
+    diffusion_policy.yaml        # Starter vision-diffusion hyperparameters
   notebook.ipynb                 # Interactive Jupyter notebook companion
 install.sh                       # Installation script (macOS + WSL/Linux)
+ablation_results/                # Optional: example ablation outputs (checkpoints + CSV)
 README.md                        # This file
 ```
+
+### Policy training at a glance
+
+| Script | Inputs | Default checkpoint directory |
+|--------|--------|------------------------------|
+| `06_train_policy.py` | Images + state (vision) or state only | `/tmp/cabinet_policy_checkpoints` |
+| `06c_train_bc_unet.py` | Low-dim state + handle features | `bc_unet_checkpoints/` (under cwd) |
+| `06d_train_highdim_bc_unet.py` | Full state vector + handle features | `highdim_bc_unet_checkpoints/` |
+| `06b_train_diffusion_unet.py` | Low-dim state + handle features | `diffusion_unet_policy_checkpoints/` |
+
+Training scripts resolve the OpenCabinet dataset via RoboCasa’s registry unless you
+pass `--dataset_path` to a LeRobot-format root (`data/`, `videos/`, optionally
+nested under `lerobot/`).
 
 ---
 
@@ -157,8 +146,9 @@ python 02_random_rollouts.py
 ```
 
 Runs the robot with random actions to see what happens (spoiler: nothing
-useful, but it helps you understand the action space). Saves a video to
-`/tmp/cabinet_random_rollouts.mp4`.
+useful, but it helps you understand the action space). By default saves a video
+to `cabinet_door_project/videos/cabinet_random_rollouts.mp4` (override with
+`--video_path`).
 
 ### Step 3: Teleoperate and Collect Demonstrations
 
@@ -205,47 +195,56 @@ doors. This is the data your policy will learn from.
 
 ### Step 6: Train a Policy
 
-```bash
-python 06_train_policy.py --policy vision_diffusion_chunk --config configs/diffusion_policy.yaml
-```
-
-Trains the built-in vision-conditioned diffusion policy that uses all three
-cameras + robot state and predicts action chunks. Checkpoints are saved as
-`.pt` files and include model type + normalization statistics so evaluation and
-visualization scripts can load them automatically.
-
-### Recommended (Working Setup)
+#### Recommended (Working Setups)
 
 For the OpenCabinet dataset size (~100 demos), the strongest results come from
-low-dim behavior cloning with handle features and action chunking:
+behavior cloning with input state vectors augmented with handle features and action chunking:
 
 ```bash
 # 1) Augment the dataset with handle features
 python 05b_augment_handle_data.py
 
-# 2) Train BC 1D U-Net (defaults: handle_pos + handle_to_eef, H=16, execute=8)
-python 06c_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
+# 2a) Very fast training: low-dim BC 1D U-Net (defaults: handle_pos + handle_to_eef, H=16, execute=8)
+python 06c_train_bc_unet.py --checkpoint_dir /path/to/checkpoints/folder
 
-# 3) Evaluate (see "Evaluation success criteria" below; relaxed is default)
+# 2b) Larger BC U-Net: high-dim state + handle features (same chunk defaults unless overridden)
+python 06d_train_highdim_bc_unet.py --checkpoint_dir /path/to/checkpoints/folder
+
+# 2c) Slower: Diffusion 1D U-Net on low-dim state + handle features
+python 06b_train_diffusion_unet.py --checkpoint_dir /path/to/checkpoints/folder
+
+# 3) Evaluate (see "Evaluation success criteria" below; relaxed is default).
+#    Match --execute_steps to what the checkpoint was trained with (default 8 for the commands above).
 python 07_evaluate_policy.py \
-  --checkpoint /tmp/bc_unet_checkpoints/best_policy.pt \
+  --checkpoint /path/to/checkpoints/folder/best_policy.pt \
   --num_rollouts 50 \
   --execute_steps 8
 ```
 
-To run ablations for your report:
+To run ablations for the low-dimensional BC U-Net (`06c`), from the **repository root**:
 
 ```bash
-python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
+python cabinet_door_project/09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
 ```
 
-You can still run the simple MLP baseline for comparison:
+Use `--suite full` for two extra experiments (larger model + gripper-threshold eval).
+Add `--dry_run` to print train/eval commands without running them. Optional:
+`--dataset_path`, `--split pretrain|target`, `--skip_train` / `--skip_eval`.
+
+#### Vision Diffusion (slowest training)
 
 ```bash
-python 06_train_policy.py --policy simple
+python 06_train_policy.py --policy vision_diffusion_chunk --config configs/diffusion_policy.yaml
 ```
 
-Few-hours profile (now default in `configs/diffusion_policy.yaml`):
+`06_train_policy.py` defaults to `--policy vision_diffusion_chunk`. Other choices
+are `diffusion` (low-dimensional DDPM from state) and `simple` (MLP BC). Trains
+the vision-conditioned diffusion policy that uses all three cameras + robot state
+and predicts action chunks. Checkpoints are saved as `.pt` files and include model
+type + normalization statistics so evaluation and visualization scripts can load
+them automatically.
+
+Profile for training Vision Diffusion within a few hours (now default in `configs/diffusion_policy.yaml`):
 
 ```bash
 python 06_train_policy.py \
@@ -262,7 +261,17 @@ python 06_train_policy.py \
   --num_inference_steps 16
 ```
 
-For higher final quality (longer runs), increase epochs / model size and remove
+#### Simple MLP baseline
+
+You can still run the simple MLP baseline for comparison:
+
+```bash
+python 06_train_policy.py --policy simple
+```
+
+
+
+For higher final quality (longer runs), could increase epochs / model size and remove
 the steps-per-epoch cap (`max_train_steps_per_epoch: null`).
 
 ### Step 7: Evaluate Your Policy
@@ -320,6 +329,47 @@ python 08_visualize_policy_rollout.py --checkpoint /tmp/cabinet_policy_checkpoin
 
 Visualizes policy behavior with the same chunked control logic used during
 evaluation.
+
+---
+
+### Google Colab (Training)
+
+Use this copy-paste sequence in a fresh Colab GPU notebook:
+
+```python
+# Cell 1: clone repo and enter it
+!git clone <YOUR_REPO_URL>
+%cd cs188-cabinet-door-team11
+```
+
+```python
+# Cell 2: install Colab dependencies
+!bash cabinet_door_project/colab_setup.sh
+```
+
+```python
+# Cell 3 (optional): mount Drive for dataset + checkpoints
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+```python
+# Cell 4: train (set paths for your Drive layout)
+DATASET_PATH = "/content/drive/MyDrive/OpenCabinet/lerobot"
+CKPT_DIR = "/content/drive/MyDrive/cabinet_policy_checkpoints"
+
+# if training vision diffusion policy
+!python cabinet_door_project/06_train_policy.py \
+  --policy vision_diffusion_chunk \
+  --config cabinet_door_project/configs/diffusion_policy.yaml \
+  --dataset_path "$DATASET_PATH" \
+  --checkpoint_dir "$CKPT_DIR"
+```
+
+Notes:
+- `DATASET_PATH` must point to a LeRobot dataset root containing `data/` and `videos/`.
+- If your repo already lives on Drive, skip `git clone` and `%cd` into that folder instead.
+- On Colab, prefer offscreen evaluation/visualization (no on-screen viewer).
 
 ---
 
@@ -429,7 +479,7 @@ across observation steps.
 
 ### DAgger (Online Correction)
 
-Script 03 already provides keyboard teleoperation. I have it set up with a DAgger mode that may or may not be kinda buggy. Use it to close the loop:
+Script 03 provides keyboard teleoperation. We have set it up with a DAgger mode. Use it to close the loop:
 train a policy, roll it out, then have a human take over and correct the robot
 whenever it fails. Aggregate these corrections into the training set and
 retrain. This directly attacks distribution shift — the fundamental reason
@@ -453,8 +503,6 @@ coherence and often stabilizes manipulation rollouts. Practical sweeps:
 
 ## Troubleshooting
 
-I'll continually update this section as students find bugs in the system. Please, let me know if you encounter issues!
-
 | Problem | Solution |
 |---------|----------|
 | `MuJoCo version must be 3.3.1` | `pip install mujoco==3.3.1` |
@@ -463,6 +511,7 @@ I'll continually update this section as students find bugs in the system. Please
 | `GLFW error` on headless server | Set `export MUJOCO_GL=egl` or `osmesa` |
 | Out of GPU / MPS memory during training | Reduce `batch_size`, `image_size`, `hidden_dim`, and `num_inference_steps` in `configs/diffusion_policy.yaml` |
 | Kitchen assets not found | Run `python -m robocasa.scripts.download_kitchen_assets` |
+| `09_run_ablations.py` cannot find `cabinet_door_project/...` | Run the script from the **repository root**, not from inside `cabinet_door_project/` |
 
 ---
 

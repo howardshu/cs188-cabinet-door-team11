@@ -16,8 +16,8 @@ New features added per timestep (7 dims total):
 Usage:
     python 05b_augment_handle_data.py
 
-    # Then train with augmented data (auto-detected):
-    python 09_train_diffusion_unet.py
+    # Then train with augmented data (auto-detected by 06b / 06c / 06d):
+    python 06c_train_bc_unet.py
 """
 
 import collections

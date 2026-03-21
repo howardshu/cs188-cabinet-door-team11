@@ -1,13 +1,15 @@
 """
 Step 9: Run Ablations for OpenCabinet
 ======================================
-Runs a small suite of ablations around the U-Net models.
-This script orchestrates training + evaluation and logs results to CSV.
+Runs a small suite of ablations around the low-dim BC U-Net (``06c_train_bc_unet.py``).
+Orchestrates training + evaluation and writes ``ablation_results.csv`` under ``--output_root``.
+
+Run from the **repository root** (subprocess paths use ``cabinet_door_project/...``).
 
 Usage:
-    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --dry_run
-    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
-    python 09_run_ablations.py --output_root /tmp/cabinet_ablations --suite full
+    python cabinet_door_project/09_run_ablations.py --output_root /tmp/cabinet_ablations --dry_run
+    python cabinet_door_project/09_run_ablations.py --output_root /tmp/cabinet_ablations --suite minimal
+    python cabinet_door_project/09_run_ablations.py --output_root /tmp/cabinet_ablations --suite full
 """
 
 import argparse
@@ -124,60 +126,67 @@ def main():
 
     experiments = []
 
+    # experiments.append(
+    #     {
+    #         "name": "full_handle",
+    #         "train_overrides": {},
+    #         "eval_overrides": {},
+    #     }
+    # )
+    # experiments.append(
+    #     {
+    #         "name": "handle_to_eef_only",
+    #         "train_overrides": {"--no_handle_pos": True},
+    #         "eval_overrides": {},
+    #     }
+    # )
+    # experiments.append(
+    #     {
+    #         "name": "handle_pos_only",
+    #         "train_overrides": {"--no_handle_to_eef": True},
+    #         "eval_overrides": {},
+    #     }
+    # )
+    # experiments.append(
+    #     {
+    #         "name": "no_handle_features",
+    #         "train_overrides": {"--no_handle_pos": True, "--no_handle_to_eef": True},
+    #         "eval_overrides": {},
+    #     }
+    # )
     experiments.append(
         {
-            "name": "full_handle",
-            "train_overrides": {},
-            "eval_overrides": {},
-        }
-    )
-    experiments.append(
-        {
-            "name": "handle_to_eef_only",
-            "train_overrides": {"--no_handle_pos": True},
-            "eval_overrides": {},
-        }
-    )
-    experiments.append(
-        {
-            "name": "handle_pos_only",
-            "train_overrides": {"--no_handle_to_eef": True},
-            "eval_overrides": {},
-        }
-    )
-    experiments.append(
-        {
-            "name": "no_handle_features",
-            "train_overrides": {"--no_handle_pos": True, "--no_handle_to_eef": True},
+            "name": "quaternions",
+            "train_overrides": {"--no_drop_quaternions": True},
             "eval_overrides": {},
         }
     )
 
-    experiments.append(
-        {
-            "name": "highdim_bc_unet",
-            "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
-            "train_overrides": {
-                "--base_channels": 128,
-                "--channel_mults": "1,2,4",
-                "--cond_dim": 512,
-            },
-            "eval_overrides": {},
-        }
-    )
-    experiments.append(
-        {
-            "name": "highdim_quaternions",
-            "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
-            "train_overrides": {
-                "--base_channels": 128,
-                "--channel_mults": "1,2,4",
-                "--cond_dim": 512,
-                "--no_drop_quaternions": True,
-            },
-            "eval_overrides": {},
-        }
-    )
+    # experiments.append(
+    #     {
+    #         "name": "highdim_bc_unet",
+    #         "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
+    #         "train_overrides": {
+    #             "--base_channels": 128,
+    #             "--channel_mults": "1,2,4",
+    #             "--cond_dim": 512,
+    #         },
+    #         "eval_overrides": {},
+    #     }
+    # )
+    # experiments.append(
+    #     {
+    #         "name": "highdim_quaternions",
+    #         "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
+    #         "train_overrides": {
+    #             "--base_channels": 128,
+    #             "--channel_mults": "1,2,4",
+    #             "--cond_dim": 512,
+    #             "--no_drop_quaternions": True,
+    #         },
+    #         "eval_overrides": {},
+    #     }
+    # )
 
     experiments.append(
         {

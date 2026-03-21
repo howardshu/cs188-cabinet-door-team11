@@ -2,7 +2,7 @@
 Step 5: Play Back Demonstrations
 ==================================
 Visualizes downloaded demonstrations for the OpenCabinet task.
-Watch how an expert opens cabinet doors -- this is the data your
+Watch how an expert opens cabinet doors -- this is the data the
 policy will learn from.
 
 Usage:

@@ -48,7 +48,7 @@ def main():
     print("=" * 60)
 
     # Create environment via the gymnasium interface
-    # This is the standard way you'll interact with RoboCasa environments
+    # This is the standard way to interact with RoboCasa environments
     print("\nCreating gym environment...")
     env = gym.make(
         "robocasa/OpenCabinet",

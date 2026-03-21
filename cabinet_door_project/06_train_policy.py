@@ -1,20 +1,23 @@
 """
-Step 6: Train a Diffusion Policy
-==================================
-This script provides self-contained policy training for OpenCabinet.
-It now includes a low-dimensional diffusion policy baseline that does
-not depend on the external Hydra-based diffusion_policy repo.
+Step 6: Train Policies (Vision Diffusion, Low-Dim Diffusion, Simple MLP)
+========================================================================
+Self-contained training for OpenCabinet in this repo — no external Hydra
+workspace required for these three modes.
 
-For production-quality training, use the official Diffusion Policy repo:
+Default is ``--policy vision_diffusion_chunk`` (three cameras + state, action
+chunking). Also available: ``diffusion`` (low-dimensional DDPM from state) and
+``simple`` (MLP behavior cloning). For state + handle-feature U-Nets, use
+``06b_train_diffusion_unet.py``, ``06c_train_bc_unet.py``, or
+``06d_train_highdim_bc_unet.py`` after ``05b_augment_handle_data.py``.
+
+For production-scale training aligned with the Diffusion Policy paper, consider
+the official RoboCasa benchmark repo:
     git clone https://github.com/robocasa-benchmark/diffusion_policy
     cd diffusion_policy && pip install -e .
     python train.py --config-name=train_diffusion_transformer_bs192 task=robocasa/OpenCabinet
 
-By default this script trains the diffusion baseline. A simple MLP BC
-baseline remains available for comparison.
-
 Usage:
-    python 06_train_policy.py [--epochs 50] [--batch_size 32] [--lr 1e-4]
+    python 06_train_policy.py --config configs/diffusion_policy.yaml
     python 06_train_policy.py --policy simple
     python 06_train_policy.py --policy diffusion
 """
@@ -184,8 +187,8 @@ class LerobotVisionChunkDataset:
 
         if self.use_handle_pos and handle_pos_missing > 0:
             print(
-                f"WARNING: {handle_pos_missing} episodes skipped (no handle_pos.npy). "
-                "Run 09_cache_handle_positions.py first."
+                f"WARNING: {handle_pos_missing} episodes skipped (no handle_pos.npy under extras/). "
+                "Provide one (N,3) float32 array per episode or train without --use_handle_pos."
             )
 
         all_states = np.concatenate([ep["states"] for ep in self.episodes], axis=0)
@@ -1506,7 +1509,10 @@ def main():
     parser.add_argument(
         "--use_handle_pos",
         action="store_true",
-        help="Augment state with cached handle positions (run 09_cache_handle_positions.py first)",
+        help=(
+            "Append handle position from extras/<episode>/handle_pos.npy (N,3) per episode. "
+            "Not produced by 05b (which writes handle columns into parquet for 06b–06d)."
+        ),
     )
     args = parser.parse_args()
 
