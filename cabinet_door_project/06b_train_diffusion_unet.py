@@ -75,6 +75,7 @@ class AugmentedLowDimDataset:
         state_key="observation.state",
         augmented_keys=None,
         max_episodes=None,
+        state_mask=None,
     ):
         import pyarrow.parquet as pq
         import torch
@@ -108,6 +109,8 @@ class AugmentedLowDimDataset:
                 continue
 
             states = np.stack(df[state_key].to_list()).astype(np.float32)
+            if state_mask is not None:
+                states = states[:, state_mask]
             actions = np.stack(df["action"].to_list()).astype(np.float32)
 
             aug_parts = []
@@ -235,6 +238,13 @@ def main():
     parser.add_argument("--val_fraction", type=float, default=0.1)
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--eval_every", type=int, default=20)
+    parser.add_argument(
+        "--no_drop_quaternions",
+        action="store_false",
+        dest="drop_quaternions",
+        help="Keep orientation quaternions in the state vector",
+    )
+    parser.set_defaults(drop_quaternions=True)
     args = parser.parse_args()
 
     try:
@@ -264,11 +274,17 @@ def main():
 
     down_dims = [int(x) for x in args.down_dims.split(",")] 
 
+    state_mask = None
+    if args.drop_quaternions:
+        # Keep base_pos (0:3), eef_pos_rel (7:10), gripper_qpos (14:16)
+        state_mask = [0, 1, 2, 7, 8, 9, 14, 15]
+
     dataset = AugmentedLowDimDataset(
         dataset_path=dataset_path,
         n_obs_steps=args.n_obs_steps,
         n_action_steps=args.n_action_steps,
         max_episodes=args.max_episodes,
+        state_mask=state_mask,
     )
 
     rng = np.random.default_rng(args.seed)
@@ -431,6 +447,8 @@ def main():
             "n_groups": 8,
             "cond_predict_scale": False,
             "augmented_obs_keys": AUGMENTED_OBS_KEYS,
+            "drop_quaternions": args.drop_quaternions,
+            "state_mask": state_mask,
             "state_mean": dataset.state_mean.astype(np.float32),
             "state_std": dataset.state_std.astype(np.float32),
             "action_mean": dataset.action_mean.astype(np.float32),

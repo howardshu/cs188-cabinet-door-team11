@@ -330,6 +330,25 @@ def check_any_door_open(env, threshold_rad=0.3):
         return env._check_success()
 
 
+def check_any_door_fixture_open(env, th=0.90):
+    """True if ANY door meets RoboCasa's per-joint `Fixture.is_open` threshold.
+
+    `env._check_success()` requires *all* `door_joint_names` to have normalized
+    openness >= `th` (default 0.9). This uses the same normalized openness and
+    threshold but succeeds when *at least one* door passes — appropriate when
+    the task is satisfied by opening one side of a double-door cabinet.
+    """
+    try:
+        fxtr = env.fxtr
+        joint_names = fxtr.door_joint_names
+        if not joint_names:
+            return env._check_success()
+        joint_state = fxtr.get_joint_state(env, joint_names)
+        return any(float(v) >= th for v in joint_state.values())
+    except Exception:
+        return env._check_success()
+
+
 def extract_state(
     obs,
     state_dim,
@@ -431,6 +450,8 @@ def run_evaluation(
     video_path,
     seed,
     use_relaxed_success=True,
+    use_fixture_any_door_success=False,
+    fixture_open_threshold=0.90,
     execute_steps=None,
     gripper_threshold=0.0,
     base_mode_threshold=0.0,
@@ -636,11 +657,16 @@ def run_evaluation(
                 )[::-1]
                 video_writer.append_data(frame)
 
-            is_success = (
-                check_any_door_open(env, threshold_rad=success_threshold_rad)
-                if use_relaxed_success
-                else env._check_success()
-            )
+            if use_fixture_any_door_success:
+                is_success = check_any_door_fixture_open(
+                    env, th=fixture_open_threshold
+                )
+            elif use_relaxed_success:
+                is_success = check_any_door_open(
+                    env, threshold_rad=success_threshold_rad
+                )
+            else:
+                is_success = env._check_success()
             if is_success:
                 success = True
                 break
@@ -713,7 +739,25 @@ def main():
     parser.add_argument(
         "--strict_success",
         action="store_true",
-        help="Use env._check_success() (all doors) instead of relaxed criterion",
+        help="Use env._check_success() / fixture.is_open semantics for ALL doors",
+    )
+    parser.add_argument(
+        "--fixture_any_door_success",
+        action="store_true",
+        help=(
+            "Use the same normalized openness threshold as RoboCasa's fixture.is_open "
+            "(default 0.9) but require only ONE door to pass — not all doors. "
+            "Mutually exclusive with --strict_success."
+        ),
+    )
+    parser.add_argument(
+        "--fixture_open_threshold",
+        type=float,
+        default=0.90,
+        help=(
+            "Threshold for --fixture_any_door_success (same default as "
+            "robocasa.models.fixtures.fixture.Fixture.is_open, th=0.90)."
+        ),
     )
     parser.add_argument(
         "--success_threshold_rad",
@@ -740,6 +784,12 @@ def main():
         help="Binarize base_mode/control_mode: >threshold => 1, else -1",
     )
     args = parser.parse_args()
+
+    if args.strict_success and args.fixture_any_door_success:
+        parser.error(
+            "Choose at most one: --strict_success (all doors) or "
+            "--fixture_any_door_success (one door at fixture threshold)."
+        )
 
     try:
         import torch
@@ -775,7 +825,20 @@ def main():
     if already_binarized:
         print("  NOTE: Checkpoint was trained with binarized actions; "
               "skipping re-binarization during eval.")
-    use_relaxed_success = not args.strict_success
+    use_relaxed_success = not args.strict_success and not args.fixture_any_door_success
+    if args.fixture_any_door_success:
+        print(
+            "  Success criterion: fixture-style openness (any single door >= "
+            f"{args.fixture_open_threshold:.2f} normalized open)"
+        )
+    elif args.strict_success:
+        print("  Success criterion: env._check_success() (all doors open per fixture)")
+    else:
+        print(
+            f"  Success criterion: relaxed (any door > {args.success_threshold_rad} rad "
+            "or normalized fallback)"
+        )
+
     results = run_evaluation(
         model=model,
         state_dim=state_dim,
@@ -787,6 +850,8 @@ def main():
         video_path=args.video_path,
         seed=args.seed,
         use_relaxed_success=use_relaxed_success,
+        use_fixture_any_door_success=args.fixture_any_door_success,
+        fixture_open_threshold=args.fixture_open_threshold,
         execute_steps=args.execute_steps,
         gripper_threshold=args.gripper_threshold,
         base_mode_threshold=args.base_mode_threshold,

@@ -97,7 +97,7 @@ def main():
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
 
-    train_script = "cabinet_door_project/11_train_bc_unet.py"
+    train_script = "cabinet_door_project/06c_train_bc_unet.py"
 
     base_train = {
         "--epochs": 100,
@@ -149,6 +149,32 @@ def main():
         {
             "name": "no_handle_features",
             "train_overrides": {"--no_handle_pos": True, "--no_handle_to_eef": True},
+            "eval_overrides": {},
+        }
+    )
+
+    experiments.append(
+        {
+            "name": "highdim_bc_unet",
+            "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
+            "train_overrides": {
+                "--base_channels": 128,
+                "--channel_mults": "1,2,4",
+                "--cond_dim": 512,
+            },
+            "eval_overrides": {},
+        }
+    )
+    experiments.append(
+        {
+            "name": "highdim_quaternions",
+            "script": "cabinet_door_project/06d_train_highdim_bc_unet.py",
+            "train_overrides": {
+                "--base_channels": 128,
+                "--channel_mults": "1,2,4",
+                "--cond_dim": 512,
+                "--no_drop_quaternions": True,
+            },
             "eval_overrides": {},
         }
     )
@@ -215,8 +241,10 @@ def main():
         eval_overrides = dict(base_eval)
         eval_overrides.update(exp["eval_overrides"])
 
+        script = exp.get("script", train_script)
+
         train_cmd = build_train_cmd(
-            train_script, str(ckpt_dir), args.dataset_path, train_overrides
+            script, str(ckpt_dir), args.dataset_path, train_overrides
         )
         eval_cmd = build_eval_cmd(
             str(ckpt_dir / "best_policy.pt"),

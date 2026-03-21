@@ -7,8 +7,8 @@ paths = {
     'vision_diffusion_chunk': ('Vision Diffusion Chunk', 'vision_diffusion_chunk_colab_logs/training_metrics.csv'),
     'diffusion_unet_200': ('Diffusion UNet (200 ep)', 'lowdim_unet_policy_checkpoints/training_metrics.csv'),
     'diffusion_unet_400': ('Diffusion UNet (400 ep)', 'lowdim_unet_policy_checkpoints3/training_metrics.csv'),
-    'low_dim_bc_unet': ('Low-dim BC UNet', 'bc_unet_checkpoints/training_metrics.csv'),
-    'high_dim_bc_unet': ('High-dim BC UNet', 'bc_unet_highdim_checkpoints/training_metrics.csv')
+    'low_dim_bc_unet': ('Low-dim Simple UNet', 'bc_unet_checkpoints/training_metrics.csv'),
+    'high_dim_bc_unet': ('High-dim Simple UNet', 'bc_unet_highdim_checkpoints/training_metrics.csv')
 }
 
 for key, (name, path) in paths.items():

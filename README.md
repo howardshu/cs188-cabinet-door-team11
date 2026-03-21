@@ -1,22 +1,17 @@
-# Cabinet Door Opening Robot - CS 188 Starter Project
-
-### Disclaimer
-
-This project was designed for CS 188 - Intro to Robotics as a template starter project. If you have any issues with the codebase, please email me at holdengs @ cs.ucla.edu!
+# Cabinet Door Opening Robot - CS 188 Final Project
 
 ## Overview
 
-In this project you will build a robot that learns to open kitchen cabinet doors
+In this project, we build a robot that learns to open kitchen cabinet doors
 using **RoboCasa365**, a large-scale simulation benchmark for everyday robot
-tasks. You will progress from understanding the simulation environment, to
-collecting demonstrations, to training a neural-network policy that controls the
-robot autonomously.
+tasks. We progress from understanding the simulation environment, to
+collecting demonstrations, to training a neural-network policy that controls the robot autonomously.
 
 This fork includes a **native diffusion-policy baseline** directly in
 `cabinet_door_project/06_train_policy.py` (no external Hydra training repo
 required for core training / eval / visualization).
 
-### What you will learn
+### Learned
 
 1. How robotic manipulation environments are structured (MuJoCo + robosuite + RoboCasa)
 2. How the `OpenCabinet` task works -- sensors, actions, success criteria
@@ -231,7 +226,7 @@ python 05b_augment_handle_data.py
 # 2) Train BC 1D U-Net (defaults: handle_pos + handle_to_eef, H=16, execute=8)
 python 06c_train_bc_unet.py --checkpoint_dir /tmp/bc_unet_checkpoints
 
-# 3) Evaluate (relaxed success is default)
+# 3) Evaluate (see "Evaluation success criteria" below; relaxed is default)
 python 07_evaluate_policy.py \
   --checkpoint /tmp/bc_unet_checkpoints/best_policy.pt \
   --num_rollouts 50 \
@@ -286,6 +281,37 @@ and scene splits (`pretrain` / `target`). The evaluator auto-detects whether
 the checkpoint is from the simple MLP, low-dim diffusion, or vision-chunk
 diffusion model.
 
+**Success criterion (pick one):** RoboCasa’s built-in task success
+(`env._check_success()` → `fixture.is_open`) requires **every** door joint on
+the cabinet to reach a high normalized openness (default **0.9** per joint).
+On **double-door** cabinets that is stricter than “open one door.”
+`07_evaluate_policy.py` therefore supports three modes:
+
+| Mode | Flags | Meaning |
+|------|--------|---------|
+| **Relaxed** (default) | *(none)* | Any single door past a loose hinge threshold (`--success_threshold_rad`, default **0.3** rad). Good for quick iteration; not identical to RoboCasa’s fixture math. |
+| **Strict (RoboCasa)** | `--strict_success` | Same as `env._check_success()`: **all** doors must satisfy the fixture openness check. |
+| **Fixture threshold, one door** | `--fixture_any_door_success` | Same **normalized** per-door definition as `Fixture.is_open` (default `--fixture_open_threshold 0.90`), but success if **any one** door passes — matches “open a cabinet door” without requiring both sides of a double door. |
+
+Examples:
+
+```bash
+# Default: relaxed
+python 07_evaluate_policy.py --checkpoint path/to/best_policy.pt --num_rollouts 50
+
+# RoboCasa-native: all doors open per fixture
+python 07_evaluate_policy.py --checkpoint path/to/best_policy.pt --strict_success
+
+# RoboCasa-style openness (0.9) on a single door only (recommended vs. strict for double doors)
+python 07_evaluate_policy.py --checkpoint path/to/best_policy.pt --fixture_any_door_success
+
+# Optional: tune the fixture threshold (still “any one door”)
+python 07_evaluate_policy.py --checkpoint path/to/best_policy.pt \
+  --fixture_any_door_success --fixture_open_threshold 0.90
+```
+
+`--strict_success` and `--fixture_any_door_success` cannot be used together.
+
 ### Step 8: Visualize a Rollout
 
 ```bash
@@ -304,7 +330,16 @@ evaluation.
 - **Goal**: Open a kitchen cabinet door
 - **Fixture**: `HingeCabinet` (a cabinet with hinged doors)
 - **Initial state**: Cabinet door is closed; robot is positioned nearby
-- **Success**: `fixture.is_open(env)` returns `True`
+- **Success (RoboCasa / `env._check_success`)**: For door “open” tasks, success calls
+  `fixture.is_open(env)`: **each** door joint on that fixture must have
+  normalized openness ≥ **0.9** (see `robocasa` `Fixture.is_open`). On a
+  two-door cabinet, that typically means **both** doors must be nearly fully
+  open.
+- **Evaluation in this repo**: `07_evaluate_policy.py` defaults to a **relaxed**
+  “any door” check for easier reporting; use `--strict_success` for the exact
+  RoboCasa criterion above, or `--fixture_any_door_success` for the same
+  per-door **0.9** threshold but success when **any one** door qualifies (see
+  Step 7).
 - **Horizon**: 500 timesteps at 20 Hz control frequency (25 seconds)
 - **Scene variety**: 2,500+ kitchen layouts/styles for generalization
 

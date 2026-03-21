@@ -43,7 +43,7 @@ def count_parameters_in_pt(file_path):
 # --- How to use it ---
 if __name__ == "__main__":
     # Replace with the path to your actual .pt or .pth file
-    file_name = "bc_unet_highdim_checkpoints/best_policy.pt" 
+    file_name = "simple-mlp-trained2/best_policy.pt" 
     
     params = count_parameters_in_pt(file_name)
     
