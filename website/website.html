@@ -60,7 +60,8 @@
             margin-top: 15px;
         }
         .media-placeholder {
-            background-color: #ecf0f1;
+            /* background-color: #ecf0f1; */
+            background-color: #ffffff;
             border: 2px dashed #bdc3c7;
             height: 200px;
             display: flex;
@@ -69,6 +70,13 @@
             color: #7f8c8d;
             font-weight: bold;
             border-radius: 5px;
+        }
+        .media-placeholder img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 4px;
         }
         footer {
             text-align: center;
@@ -87,14 +95,14 @@
 
     <main>
         <section id="overview">
-            <h2>Project Overview</h2>
+            <h1>Project Overview</h1>
             <p><strong>Model Architecture:</strong> TBD</p>
-            <p><strong>Robot Platform:</strong> TBD</p>
+            <p><strong>Robot Platform:</strong> Franka Panda 7-DOF arm mounted on an Omron wheeled base with a torso lift joint</p>
             <p><strong>Objective:</strong> Open a cabinet</p>
         </section>
 
         <section id="training-metrics">
-            <h2>Training Metrics</h2>
+            <h1>Training Metrics</h1>
             <p>The following table summarizes the hyperparameter tuning and the resulting performance during the simulated training environments.</p>
             
             <table>
@@ -122,37 +130,109 @@
         </section>
 
         <section id="evaluation">
-            <h2>Evaluation </h2>
-            <p>TBD</p>
+            <h1>Evaluation </h1>
+            <p>The evaluation is based on the reported amount of grasp success rates, which is being checked by the _check_success()
+                function. It uses the robocasa door value 
+            </p>
             
             <table>
                 <thead>
                     <tr>
-                        <th>Task Metric</th>
-                        <th>Simulation Performance</th>
+                        <th>Model Architecture</th>
+                        <th>Grasp Success Rate</th>
                     </tr>
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Grasp Success Rate</td>
-                        <td>A</td>
+                        <td>Baseline Behavior Cloning MLP</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td>Vision Diffusion Chunk</td>
+                        <td></td>
+                    </tr>   
+                    <tr>
+                        <td>Diffusion UNet</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td>Behavior Cloning UNet (Low-Dim)</td>
+                        <td></td>
+                    </tr>
+                    <tr>
+                        <td>Behavior Cloning UNet (High-Dim)</td>
+                        <td></td>
+                    </tr>
                 </tbody>
             </table>
         </section>
 
         <section id="visualizations">
-            <h2>Visualizations & Demos</h2>
+            <h1>Visualizations & Demos</h1>
             <p>Below are visual outputs of the agent's behavior during evaluation.</p>
             
+            <h2>Baseline Behavior Cloning MLP</h2>
             <div class="media-grid">
                 <div class="media-placeholder">
-                    [Insert Graph: Reward Curve over Time]
+                    <img src="./diagrams/baseline-mlp.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <img src="./plots/baseline_mlp_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
                     [Insert Video: Simulation Grasping Task]
                 </div>
+            </div>
+
+            <h2>Diffusion UNet (200 ep)</h2>
+            <div class="media-grid">
                 <div class="media-placeholder">
-                    [Insert Video: Real-World Deployment]
+                    <img src="./diagrams/diffusion-unet.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <img src="./plots/diffusion_unet_200_plot.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    [Insert Video: Simulation Grasping Task]
+                </div>
+            </div>
+
+            <h2>Diffusion UNet (400 ep)</h2>
+            <div class="media-grid">
+                <div class="media-placeholder">
+                    <img src="./diagrams/diffusion-unet.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <img src="./plots/diffusion_unet_400_plot.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    [Insert Video: Simulation Grasping Task]
+                </div>
+            </div>
+
+            <h2>Behavior Cloning UNet (Low-Dim)</h2>
+            <div class="media-grid">
+                <div class="media-placeholder">
+                    <img src="./diagrams/bc-unet.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <img src="./plots/low_dim_bc_unet_plot.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    [Insert Video: Simulation Grasping Task]
+                </div>
+            </div>
+
+            <h2>Behavior Cloning UNet (High-Dim)</h2>
+            <div class="media-grid">
+                <div class="media-placeholder">
+                    <img src="./diagrams/bc-unet.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <img src="./plots/high_dim_bc_unet_plot.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    [Insert Video: Simulation Grasping Task]
                 </div>
             </div>
         </section>
