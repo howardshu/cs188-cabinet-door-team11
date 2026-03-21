@@ -111,6 +111,7 @@
 
     <header>
         <h1>Robotics Machine Learning Results</h1>
+        <p>Howard Shu and Ryan Chang</p>
         <p>Project: Autonomous Navigation & Object Manipulation via Reinforcement Learning</p>
     </header>
 
@@ -145,8 +146,8 @@
             <div class="model-architecture-breakdown">
         </section>
 
-        <section id="model-design">
-            <h1>Model Designs</h1>
+        <section id="tested-models">
+            <h1>Tested Models</h1>
 
             <h3>Vision Diffusion Chunk <em>(~2.65M params)</em></h3>
             <ul>
@@ -189,8 +190,8 @@
         
         <section id="evaluation">
             <h1>Evaluation </h1>
-            <p>The evaluation is based on the reported amount of grasp success rates, which is being checked by the _check_success()
-                function. It uses the robocasa door value 
+            <p>As suggested by the TA, we relaxed the success criteria from opening both cabinet doors to just opening one door. Additionally, we lowered the threshold for success to be opening one door 0.3rad (~17 degrees). In a small sample size of N=50 rollouts for evaluating each model on pretrain episodes, we got the following:
+
             </p>
             
             <table>
@@ -203,23 +204,27 @@
                 <tbody>
                     <tr>
                         <td>Baseline Behavior Cloning MLP</td>
-                        <td></td>
+                        <td>0%</td>
                     </tr>
                     <tr>
                         <td>Vision Diffusion Chunk</td>
-                        <td></td>
+                        <td>0%</td>
                     </tr>   
                     <tr>
-                        <td>Diffusion UNet</td>
-                        <td></td>
+                        <td>Diffusion UNet (200 epochs)</td>
+                        <td>28%</td>
+                    </tr>
+                    <tr>
+                        <td>Diffusion UNet (400 epochs)</td>
+                        <td>34%</td>
                     </tr>
                     <tr>
                         <td>Behavior Cloning UNet (Low-Dim)</td>
-                        <td></td>
+                        <td>44%</td>
                     </tr>
                     <tr>
                         <td>Behavior Cloning UNet (High-Dim)</td>
-                        <td></td>
+                        <td>46%</td>
                     </tr>
                 </tbody>
             </table>
@@ -227,7 +232,7 @@
 
         <section id="visualizations">
             <h1>Visualizations & Demos</h1>
-            <p>Below are visual outputs of the agent's behavior during evaluation.</p>
+            <p>Below are diagram of the design of the model, the loss vs. epoch during training, and the visual outputs of the agent's behavior during evaluation.</p>
             
             <h2>Baseline Behavior Cloning MLP</h2>
             <div class="media-grid">
