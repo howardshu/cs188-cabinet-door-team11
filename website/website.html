@@ -118,7 +118,7 @@
     <main>
         <section id="overview">
             <h1>Project Overview</h1>
-            <p><strong>Model Architecture:</strong> Behavior Cloning UNet (High-Dim)</p>
+            <p><strong>Model Architecture:</strong> Simple UNet (High-Dim)</p>
             <p><strong>Robot Platform:</strong> Franka Panda 7-DOF arm mounted on an Omron wheeled base with a torso lift joint</p>
             <p><strong>Objective:</strong> Open a cabinet</p>
         </section>
@@ -136,7 +136,7 @@
                 </li>
                 
                 <li>
-                    <strong>Loss Functions:</strong> For the Baseline MLP and BC UNet models, we employ simple Mean Squared Error (MSE) loss between the predicted actions and the ground-truth demonstrations. For Diffusion-based models, the loss is the Denoise Error, computing the MSE on the added noise during the forward diffusion process.
+                    <strong>Loss Functions:</strong> For the Baseline MLP and Simple UNet models, we employ simple Mean Squared Error (MSE) loss between the predicted actions and the ground-truth demonstrations. For Diffusion-based models, the loss is the Denoise Error, computing the MSE on the added noise during the forward diffusion process.
                 </li>
                 
                 <li>
@@ -170,18 +170,18 @@
                 <li><strong>Speed:</strong> Slower during evaluation inference. To make a single prediction, it has to loop through the network multiple times to clear the noise out iteratively.</li>
             </ul>
 
-            <h3>BC unet <em>(~0.32M params)</em></h3>
+            <h3>Simple unet <em>(~0.32M params)</em></h3>
             <ul>
-                <li>Standard, deterministic Behavior Cloning CNN.</li>
+                <li>Standard, deterministic Simple CNN.</li>
                 <li>There is no probability generation or noisy diffusion steps. It directly embeds the history of the joint angles/handle tracking and immediately predicts exactly what the expert demonstrator would do as a sequence output via single feed-forward pass. It uses simple 1D Conv layers and skip connections to maintain temporal structure.</li>
                 <li><strong>Parameters:</strong> This model is built to be extremely lightweight. With the native arguments in your code (base_channels=32, channel_mults=[1, 2]), it shrinks all the way down to &lt; 0.5 Million parameters (~0.1-0.3M).</li>
                 <li><strong>Inputs:</strong> (Presumed to follow the same 44-dimensional flattened state architecture as diffusion unet).</li>
                 <li><strong>Speed:</strong> Blazing fast. It produces the complete action trajectory in exactly one inference pass, and it trains to its peak capability incredibly quickly (often maxing out its validation accuracy by Epoch 4-6 before overfitting, while Diffusion models usually need 50-100 epochs to stabilize the noise mapping).</li>
             </ul>
 
-            <h3>High-Dimensional BC unet <em>(~14M params)</em></h3>
+            <h3>High-Dimensional Simple unet <em>(~14M params)</em></h3>
             <ul>
-                <li>A scaled-up version of the BC UNet for higher capacity, preserving the fully deterministic action-prediction approach.</li>
+                <li>A scaled-up version of the Simple UNet for higher capacity, preserving the fully deterministic action-prediction approach.</li>
                 <li><strong>Inputs:</strong> Filtered representations dropping Base and EEF quaternions to rely strictly on 8 dimensions + 6-dimensions of augmented handle data per step. Flattened over <code>n_obs_steps = 2</code>, its global conditioning relies strictly on a deterministic 28-dimensional vector matrix.</li>
             </ul>
 
@@ -203,7 +203,7 @@
                 </thead>
                 <tbody>
                     <tr>
-                        <td>Baseline Behavior Cloning MLP</td>
+                        <td>Baseline Simple MLP</td>
                         <td>0%</td>
                     </tr>
                     <tr>
@@ -219,11 +219,11 @@
                         <td>34%</td>
                     </tr>
                     <tr>
-                        <td>Behavior Cloning UNet (Low-Dim)</td>
+                        <td>Simple UNet (Low-Dim)</td>
                         <td>44%</td>
                     </tr>
                     <tr>
-                        <td>Behavior Cloning UNet (High-Dim)</td>
+                        <td>Simple UNet (High-Dim)</td>
                         <td>46%</td>
                     </tr>
                 </tbody>
@@ -234,7 +234,7 @@
             <h1>Visualizations & Demos</h1>
             <p>Below are diagram of the design of the model, the loss vs. epoch during training, and the visual outputs of the agent's behavior during evaluation.</p>
             
-            <h2>Baseline Behavior Cloning MLP</h2>
+            <h2>Baseline Simple MLP</h2>
             <div class="media-grid">
                 <div class="media-placeholder">
                     <img src="./diagrams/baseline-mlp.png"></img>
@@ -243,7 +243,24 @@
                     <img src="./plots/baseline_mlp_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
-                    [Insert Video: Simulation Grasping Task]
+                    <video controls>
+                        <source src="./videos/baseline_mlp.mp4" type="video/mp4">
+                    </video>
+                </div>
+            </div>
+
+            <h2>Vision Diffusion</h2>
+            <div class="media-grid">
+                <div class="media-placeholder">
+                    <img src="./diagrams/vision-diffusion.png"></img>
+                </div>
+                <div class="media-placeholder">
+                    <!-- <img src="./plots/baseline_mlp_plot.png"></img> -->
+                </div>
+                <div class="media-placeholder">
+                    <video controls>
+                        <source src="./videos/vision_diffusion.mp4" type="video/mp4">
+                    </video>
                 </div>
             </div>
 
@@ -256,7 +273,9 @@
                     <img src="./plots/diffusion_unet_200_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
-                    [Insert Video: Simulation Grasping Task]
+                    <video controls>
+                        <source src="./videos/diffusion_unet_200eps_strict_one_door_trimmed.mp4" type="video/mp4">
+                    </video>
                 </div>
             </div>
 
@@ -269,11 +288,13 @@
                     <img src="./plots/diffusion_unet_400_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
-                    [Insert Video: Simulation Grasping Task]
+                    <video controls>
+                        <source src="./videos/diffusion_unet_400_eps_strict_one_door.mp4" type="video/mp4">
+                    </video>
                 </div>
             </div>
 
-            <h2>Behavior Cloning UNet (Low-Dim)</h2>
+            <h2>Simple UNet (Low-Dim)</h2>
             <div class="media-grid">
                 <div class="media-placeholder">
                     <img src="./diagrams/bc-unet.png"></img>
@@ -282,11 +303,13 @@
                     <img src="./plots/low_dim_bc_unet_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
-                    [Insert Video: Simulation Grasping Task]
+                    <video controls>
+                            <source src="./videos/lowdim_strict_one_door_trimmed.mp4" type="video/mp4">
+                    </video>
                 </div>
             </div>
 
-            <h2>Behavior Cloning UNet (High-Dim)</h2>
+            <h2>Simple UNet (High-Dim)</h2>
             <div class="media-grid">
                 <div class="media-placeholder">
                     <img src="./diagrams/bc-unet.png"></img>
