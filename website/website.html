@@ -112,13 +112,14 @@
     <header>
         <h1>Robotics Machine Learning Results</h1>
         <p>Howard Shu and Ryan Chang</p>
-        <p>Project: Autonomous Navigation & Object Manipulation via Reinforcement Learning</p>
+        <p>Project: Autonomous Cabinet Door Opening via Behavior Cloning</p>
     </header>
 
     <main>
         <section id="overview">
             <h1>Project Overview</h1>
-            <p><strong>Model Architecture:</strong> Simple UNet (High-Dim)</p>
+            <p><strong>Best Model Architecture:</strong> Simple UNet (High-Dim)</p>
+            <p><strong>Other Models Tester:</strong> Simple UNet (Low-Dim), Vision Diffusion, Diffusion UNet, Baseline Simple MLP</p>
             <p><strong>Robot Platform:</strong> Franka Panda 7-DOF arm mounted on an Omron wheeled base with a torso lift joint</p>
             <p><strong>Objective:</strong> Open a cabinet</p>
         </section>
@@ -128,20 +129,17 @@
             <h1> General Overview</h1>
             <ul class="model-training-details">
                 <li>
-                    <strong>Features:</strong> The state observations consist of a 16-dimensional vector for low-dimensional models (likely including joint positions and base velocities) concatenated with 6-dimensions of augmented handle positions. High-dimensional methods incorporate image observations directly. Action targets are 12-dimensional vectors controlling the 7-DoF arm, gripper, and mobile base.
+                    <strong>Features:</strong> The input state observations for all models besides Vision Diffusion consist of a 16-dimensional vector concatenated with 6-dimensions of augmented handle positions. The Vision Diffusion model does not include augmented handle features, but rather image observations from the three cameras. Action targets are 12-dimensional vectors controlling the 7-DoF arm, gripper, and mobile base.
                 </li>
                 
                 <li>
-                    <strong>Action Chunking / Sequence Prediction:</strong> Rather than predicting a single set of joint velocities at every step (which suffers from compounding execution errors), the UNet architectures output sequences of future actions (action chunks). The context window is kept at <code>n_obs_steps: 2</code>, where the model sees the current step and the previous state simultaneously to establish basic velocity context. The Diffusion UNet predicts its sequence across <code>n_action_steps: 8</code>, while High-Dim BC predicts over <code>n_action_steps: 16</code> and executes <code>8</code> internally. This allows execution bounds to operate open-loop across wide temporally-consistent chunks.
+                    <strong>Action Chunking / Sequence Prediction:</strong> Rather than predicting a single set of joint velocities at every step (which suffers from compounding execution errors), the UNet architectures output sequences of future actions (action chunks). The context window is kept at n_obs_steps: 2, where the model sees the current step and the previous state simultaneously to establish basic velocity context. The Diffusion UNet and both the Simple UNet models predict over n_action_steps: 16 future steps and execute 8 internally. The Vision Diffusion model predicts its sequence across n_action_steps: 8 and executes all 8 before replanning. With this, the policy controls the robot every 8 steps by creating a smooth plan for the near future (temporally-consistent chunk) and executing it open-loop within execution bounds. This prevents the robot from over-correcting itself and ensures its physical movements are smooth and stable.
                 </li>
                 
                 <li>
                     <strong>Loss Functions:</strong> For the Baseline MLP and Simple UNet models, we employ simple Mean Squared Error (MSE) loss between the predicted actions and the ground-truth demonstrations. For Diffusion-based models, the loss is the Denoise Error, computing the MSE on the added noise during the forward diffusion process.
                 </li>
                 
-                <li>
-                    <strong>Batch Size &amp; Hyperparameters:</strong> The models were typically trained with a batch size of 32 or 64. The AdamW optimizer was utilized. The Baseline MLP used a learning rate of 0.0001 over 50 epochs.
-                </li>
                 </ul>
             <div class="model-architecture-breakdown">
         </section>
@@ -153,36 +151,34 @@
             <ul>
                 <li><strong>Inputs:</strong> Three separate RGB camera viewpoints (<code>robot0_agentview_left</code>, <code>robot0_agentview_right</code>, <code>robot0_eye_in_hand</code>) scaled to <code>64x64</code>, combined with the default 16-dimensional <code>observation.state</code>.</li>
                 <li><strong>Vision Encoder:</strong> Inherits the ResNet18 backbone standard implementation from the <code>diffusion_policy</code> repository mapping to a 128-dimensional vision feature vector.</li>
-                <li>Takes visual inputs concatenated natively with the low-dimensional proprioceptive variables and diffuses noise into a structured action trajectory.</li>
+                <li>Takes visual inputs concatenated with the 16-dimensional proprioceptive state and diffuses noise into a structured action trajectory.</li>
             </ul>
 
-            <h3>Diffusion unet <em>(~15.8M params)</em></h3>
+            <h3>Diffusion UNet <em>(~15.8M params)</em></h3>
             <ul>
                 <li>ConditionalUnet1D alongside a DDPMScheduler.</li>
                 <li>Generative Diffusion Policy.</li>
                 <li>Takes pure Gaussian noise and iteratively denoises it into a valid action sequence over 16-100 steps. The environment state is injected as a "global condition" feature vector that guides the network on how to sculpt the noise.
                 <ul>
-                    <li>Because it's a score-matching diffusion process, it excels at learning multi-modal behaviors (e.g., passing a cup around an obstacle to the left OR the right with equal probability, rather than averaging the paths and crashing).</li>
+                    <li>As a score-matching diffusion process, it excels at learning multi-modal behaviors (e.g., approaching an object from the left OR the right with equal probability, rather than averaging the paths and crashing).</li>
                 </ul>
                 </li>
-                <li><strong>Parameters:</strong> Using the default layer dimensionalities configured inside 06b (down_dims=[256, 512]), this architecture contains roughly ~2.1 Million parameters.</li>
                 <li><strong>Inputs:</strong> The global condition contains the 16-dimensional base state and 6-dimensions of augmented handle data. Flattened across <code>n_obs_steps = 2</code>, the global condition is a 44-dimensional vector.</li>
                 <li><strong>Speed:</strong> Slower during evaluation inference. To make a single prediction, it has to loop through the network multiple times to clear the noise out iteratively.</li>
             </ul>
 
-            <h3>Simple unet <em>(~0.32M params)</em></h3>
+            <h3>Low-Dimensional Simple UNet <em>(~0.32M params)</em></h3>
             <ul>
                 <li>Standard, deterministic Simple CNN.</li>
                 <li>There is no probability generation or noisy diffusion steps. It directly embeds the history of the joint angles/handle tracking and immediately predicts exactly what the expert demonstrator would do as a sequence output via single feed-forward pass. It uses simple 1D Conv layers and skip connections to maintain temporal structure.</li>
-                <li><strong>Parameters:</strong> This model is built to be extremely lightweight. With the native arguments in your code (base_channels=32, channel_mults=[1, 2]), it shrinks all the way down to &lt; 0.5 Million parameters (~0.1-0.3M).</li>
-                <li><strong>Inputs:</strong> (Presumed to follow the same 44-dimensional flattened state architecture as diffusion unet).</li>
+                <li><strong>Inputs:</strong> Dropping Base and EEF quaternions in the state vector to rely strictly on 8 dimensions + 6-dimensions of augmented handle data per step. Flattened over n_obs_steps = 2, its global conditioning relies strictly on a 28-dimensional state vector matrix.</li>
                 <li><strong>Speed:</strong> Blazing fast. It produces the complete action trajectory in exactly one inference pass, and it trains to its peak capability incredibly quickly (often maxing out its validation accuracy by Epoch 4-6 before overfitting, while Diffusion models usually need 50-100 epochs to stabilize the noise mapping).</li>
             </ul>
 
-            <h3>High-Dimensional Simple unet <em>(~14M params)</em></h3>
+            <h3>High-Dimensional Simple UNet <em>(~14M params)</em></h3>
             <ul>
                 <li>A scaled-up version of the Simple UNet for higher capacity, preserving the fully deterministic action-prediction approach.</li>
-                <li><strong>Inputs:</strong> Filtered representations dropping Base and EEF quaternions to rely strictly on 8 dimensions + 6-dimensions of augmented handle data per step. Flattened over <code>n_obs_steps = 2</code>, its global conditioning relies strictly on a deterministic 28-dimensional vector matrix.</li>
+                <li><strong>Inputs:</strong> Same as the Low-Dimensional Simple UNet.</li>
             </ul>
 
             </div>
