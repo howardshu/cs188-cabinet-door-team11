@@ -78,6 +78,20 @@
             display: block;
             border-radius: 4px;
         }
+        .media-video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 4px;
+        }
+        .media-placeholder video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            display: block;
+            border-radius: 4px;
+        }
         .hero-image {
             max-width: 50%;
             width: auto;
@@ -103,11 +117,11 @@
     <main>
         <section id="overview">
             <h1>Project Overview</h1>
-            <p><strong>Model Architecture:</strong> TBD</p>
+            <p><strong>Model Architecture:</strong> Behavior Cloning UNet (High-Dim)</p>
             <p><strong>Robot Platform:</strong> Franka Panda 7-DOF arm mounted on an Omron wheeled base with a torso lift joint</p>
             <p><strong>Objective:</strong> Open a cabinet</p>
         </section>
-        <img class="hero-image" src="./images/robot-grabber.png" alt="Robot grabber"></img>
+        <img class="hero-image" src="./images/robot-grabber.png"></img>
 
         <section id="general-overview">
             <h1> General Overview</h1>
@@ -276,7 +290,9 @@
                     <img src="./plots/high_dim_bc_unet_plot.png"></img>
                 </div>
                 <div class="media-placeholder">
-                    [Insert Video: Simulation Grasping Task]
+                    <video controls>
+                        <source src="./videos/highdim_unet.mp4" type="video/mp4">
+                    </video>
                 </div>
             </div>
         </section>
